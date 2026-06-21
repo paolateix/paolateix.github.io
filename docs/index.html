@@ -257,24 +257,25 @@
         const succeeded = completed.conclusion === 'success';
 
         // 4. Fetch and show log (dry run only — for real runs just show result)
-        if (isDryRun) {
-          setStatus('loading', `<span class="spinner"></span> Fetching preview…`);
-          const log = await fetchLog(token, run.id).catch(() => null);
+        // Fetch log for both modes — needed to detect "nothing to do"
+        setStatus('loading', `<span class="spinner"></span> Fetching results…`);
+        const log = await fetchLog(token, run.id).catch(() => null);
+        const noTasks = log && log.includes('Nothing to do');
+
+        if (!succeeded) {
           const logHtml = log
             ? `<div class="log-box">${log.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>`
-            : `<br><a href="${completed.html_url}" target="_blank">→ View full log on GitHub</a>`;
-
-          setStatus(
-            succeeded ? 'success' : 'error',
-            `${succeeded ? '🔍 Here\'s what Run Agent would do:' : '❌ Dry run failed — see log below:'}${logHtml}`
-          );
+            : `<a href="${completed.html_url}" target="_blank">→ View error log</a>`;
+          setStatus('error', `❌ ${isDryRun ? 'Dry run' : 'Run'} failed — see log below:<br>${logHtml}`);
+        } else if (noTasks) {
+          setStatus('success', `✅ No actions to take — no overdue tasks found.`);
+        } else if (isDryRun) {
+          const logHtml = log
+            ? `<div class="log-box">${log.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>`
+            : `<a href="${completed.html_url}" target="_blank">→ View full log on GitHub</a>`;
+          setStatus('success', `🔍 Here's what Run Agent would do:${logHtml}`);
         } else {
-          setStatus(
-            succeeded ? 'success' : 'error',
-            succeeded
-              ? `✅ Complete`
-              : `❌ Something went wrong. <a href="${completed.html_url}" target="_blank">→ View error log</a>`
-          );
+          setStatus('success', `✅ Complete`);
         }
 
       } catch (e) {
