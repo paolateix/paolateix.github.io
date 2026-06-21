@@ -209,7 +209,10 @@
 
       try {
         setStatus('loading', `<span class="spinner"></span> Triggering ${isDryRun ? 'dry run' : 'agent'}…`);
-        const triggerTime = new Date();
+
+        // Snapshot the current latest run ID before triggering
+        const preTrigger = await ghGet(token, `/repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs?per_page=1&branch=${BRANCH}`);
+        const lastRunId = preTrigger.workflow_runs?.[0]?.id ?? 0;
 
         const triggerRes = await fetch(
           `https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/dispatches`,
@@ -226,12 +229,12 @@
 
         setStatus('loading', `<span class="spinner"></span> Queued — waiting for run to start…`);
 
-        // Poll until we find a run created after we triggered it
+        // Poll until we find a run with an ID newer than what existed before we triggered
         let run = null;
         for (let i = 0; i < 24; i++) {
           await new Promise(r => setTimeout(r, 5000));
           const runsData = await ghGet(token, `/repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs?per_page=5&branch=${BRANCH}`);
-          const fresh = (runsData.workflow_runs || []).find(r => new Date(r.created_at) >= triggerTime);
+          const fresh = (runsData.workflow_runs || []).find(r => r.id > lastRunId);
           if (fresh) { run = fresh; break; }
         }
         if (!run) throw new Error('Run did not appear after 2 minutes — check GitHub Actions.');
