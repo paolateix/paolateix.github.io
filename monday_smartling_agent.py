@@ -168,13 +168,7 @@ def get_subitems_overdue():
             q = """
             query($cursor: String!) {
               boards(ids: [9991673115]) {
-                items_page(limit: 200, cursor: $cursor, query_params: {
-                  rules: [
-                    {column_id: "date0", compare_value: ["%s"], operator: lower_than_or_equal},
-                    {column_id: "color_mkyf691e", compare_value: ["Done"], operator: not_any_of}
-                  ]
-                  operator: and
-                }) {
+                items_page(limit: 200, cursor: $cursor) {
                   cursor
                   items {
                     id name
@@ -184,7 +178,7 @@ def get_subitems_overdue():
                 }
               }
             }
-            """ % today_str
+            """
             data = monday_query(q, {"cursor": cursor})
         else:
             q = """
