@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Localization Agent</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0f1117;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .card {
+      background: #1a1f2e;
+      border: 1px solid #2d3748;
+      border-radius: 16px;
+      padding: 48px;
+      width: 100%;
+      max-width: 480px;
+      text-align: center;
+    }
+
+    .icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+    }
+
+    h1 {
+      font-size: 22px;
+      font-weight: 700;
+      margin-bottom: 8px;
+      color: #fff;
+    }
+
+    .subtitle {
+      font-size: 14px;
+      color: #718096;
+      margin-bottom: 40px;
+      line-height: 1.5;
+    }
+
+    .run-btn {
+      width: 100%;
+      padding: 16px;
+      background: #4f6ef7;
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    .run-btn:hover:not(:disabled) { background: #3d5ae5; }
+    .run-btn:active:not(:disabled) { transform: scale(0.98); }
+    .run-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .status {
+      margin-top: 24px;
+      padding: 14px 16px;
+      border-radius: 10px;
+      font-size: 14px;
+      display: none;
+      text-align: left;
+      line-height: 1.6;
+    }
+
+    .status.loading { background: #1e2a4a; border: 1px solid #2d4a8a; color: #90cdf4; display: block; }
+    .status.success { background: #1a2e22; border: 1px solid #2d6a4f; color: #68d391; display: block; }
+    .status.error   { background: #2e1a1a; border: 1px solid #6a2d2d; color: #fc8181; display: block; }
+
+    .status a { color: inherit; font-weight: 600; }
+
+    .spinner {
+      display: inline-block;
+      width: 14px; height: 14px;
+      border: 2px solid currentColor;
+      border-top-color: transparent;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Token setup */
+    .setup {
+      margin-top: 32px;
+      padding-top: 24px;
+      border-top: 1px solid #2d3748;
+      text-align: left;
+    }
+
+    .setup summary {
+      font-size: 13px;
+      color: #718096;
+      cursor: pointer;
+      user-select: none;
+    }
+
+    .setup summary:hover { color: #a0aec0; }
+
+    .token-row {
+      display: flex;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .token-input {
+      flex: 1;
+      padding: 10px 12px;
+      background: #0f1117;
+      border: 1px solid #2d3748;
+      border-radius: 8px;
+      color: #e2e8f0;
+      font-size: 13px;
+      font-family: monospace;
+    }
+
+    .token-input:focus { outline: none; border-color: #4f6ef7; }
+
+    .save-btn {
+      padding: 10px 16px;
+      background: #2d3748;
+      color: #e2e8f0;
+      border: none;
+      border-radius: 8px;
+      font-size: 13px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .save-btn:hover { background: #4a5568; }
+
+    .token-hint {
+      margin-top: 8px;
+      font-size: 12px;
+      color: #4a5568;
+    }
+
+    .token-hint a { color: #4f6ef7; text-decoration: none; }
+    .token-saved { color: #68d391; font-size: 12px; margin-top: 6px; display: none; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">🌍</div>
+    <h1>Localization Agent</h1>
+    <p class="subtitle">
+      Scans overdue tasks on the Monday board, publishes ready languages in Smartling,
+      comments on each task, and marks them Done.
+    </p>
+
+    <button class="run-btn" id="runBtn" onclick="runAgent()">
+      Run Agent
+    </button>
+
+    <div class="status" id="status"></div>
+
+    <details class="setup">
+      <summary>⚙️ GitHub token setup</summary>
+      <div class="token-row">
+        <input
+          class="token-input"
+          id="tokenInput"
+          type="password"
+          placeholder="github_pat_..."
+        />
+        <button class="save-btn" onclick="saveToken()">Save</button>
+      </div>
+      <p class="token-hint">
+        Needs a
+        <a href="https://github.com/settings/tokens/new?scopes=workflow&description=Localization+Agent" target="_blank">
+          GitHub PAT with <code>workflow</code> scope
+        </a>.
+        Stored only in your browser.
+      </p>
+      <p class="token-saved" id="tokenSaved">✓ Token saved</p>
+    </details>
+  </div>
+
+  <script>
+    const REPO   = 'paolateix/monday-smartling-agent';
+    const BRANCH = 'main';
+    const WORKFLOW_FILE = 'monday_smartling.yml';
+
+    function loadToken() {
+      return localStorage.getItem('gh_pat') || '';
+    }
+
+    function saveToken() {
+      const val = document.getElementById('tokenInput').value.trim();
+      if (!val) return;
+      localStorage.setItem('gh_pat', val);
+      document.getElementById('tokenSaved').style.display = 'block';
+      setTimeout(() => document.getElementById('tokenSaved').style.display = 'none', 2000);
+    }
+
+    // Pre-fill input if token already saved
+    window.addEventListener('DOMContentLoaded', () => {
+      const t = loadToken();
+      if (t) document.getElementById('tokenInput').value = t;
+    });
+
+    function setStatus(type, html) {
+      const el = document.getElementById('status');
+      el.className = 'status ' + type;
+      el.innerHTML = html;
+    }
+
+    async function runAgent() {
+      const token = loadToken();
+      if (!token) {
+        setStatus('error', '⚠️ No GitHub token saved. Open ⚙️ setup below and add your token first.');
+        return;
+      }
+
+      const btn = document.getElementById('runBtn');
+      btn.disabled = true;
+      setStatus('loading', '<span class="spinner"></span> Triggering agent…');
+
+      try {
+        // Trigger the workflow
+        const triggerRes = await fetch(
+          `https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/dispatches`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/vnd.github+json',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ ref: BRANCH }),
+          }
+        );
+
+        if (!triggerRes.ok) {
+          const err = await triggerRes.json().catch(() => ({}));
+          throw new Error(err.message || `HTTP ${triggerRes.status}`);
+        }
+
+        setStatus('loading', '<span class="spinner"></span> Agent started — fetching run link…');
+
+        // Wait a moment then grab the latest run URL
+        await new Promise(r => setTimeout(r, 3500));
+
+        const runsRes = await fetch(
+          `https://api.github.com/repos/${REPO}/actions/runs?per_page=1&branch=${BRANCH}`,
+          {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/vnd.github+json',
+            },
+          }
+        );
+
+        const runsData = await runsRes.json();
+        const run = runsData.workflow_runs?.[0];
+
+        if (run) {
+          setStatus(
+            'success',
+            `✅ Agent is running!<br><br>
+             <a href="${run.html_url}" target="_blank">→ View live run on GitHub Actions</a>`
+          );
+        } else {
+          setStatus('success', '✅ Agent triggered successfully. Check <a href="https://github.com/' + REPO + '/actions" target="_blank">GitHub Actions</a> for the run.');
+        }
+
+      } catch (e) {
+        setStatus('error', `❌ Error: ${e.message}`);
+      } finally {
+        btn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>

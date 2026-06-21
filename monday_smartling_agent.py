@@ -152,13 +152,15 @@ def monday_query(query, variables=None):
 SUBITEMS_BOARD_ID = 9991673115  # "Subitems of Product Localization Tasks"
 
 
-def get_subitems_with_eta_yesterday():
+def get_subitems_overdue():
     """
-    Query the subitems board directly with a date filter for yesterday.
-    This is far more efficient than iterating all parent items.
+    Query the subitems board for all subitems where ETA <= today (overdue or due today).
+    Uses 'lower_than_or_equal' operator so it catches yesterday AND any older missed tasks.
+    Excludes subitems already marked Done.
     """
     results = []
     cursor = None
+    today_str = date.today().strftime("%Y-%m-%d")
 
     while True:
         if cursor:
@@ -166,7 +168,11 @@ def get_subitems_with_eta_yesterday():
             query($cursor: String!) {
               boards(ids: [9991673115]) {
                 items_page(limit: 200, cursor: $cursor, query_params: {
-                  rules: [{column_id: "date0", compare_value: ["%s"], operator: any_of}]
+                  rules: [
+                    {column_id: "date0", compare_value: ["%s"], operator: lower_than_or_equal},
+                    {column_id: "color_mkyf691e", compare_value: ["Done"], operator: not_any_of}
+                  ]
+                  operator: and
                 }) {
                   cursor
                   items {
@@ -177,14 +183,18 @@ def get_subitems_with_eta_yesterday():
                 }
               }
             }
-            """ % YESTERDAY
+            """ % today_str
             data = monday_query(q, {"cursor": cursor})
         else:
             q = """
             {
               boards(ids: [9991673115]) {
                 items_page(limit: 200, query_params: {
-                  rules: [{column_id: "date0", compare_value: ["%s"], operator: any_of}]
+                  rules: [
+                    {column_id: "date0", compare_value: ["%s"], operator: lower_than_or_equal},
+                    {column_id: "color_mkyf691e", compare_value: ["Done"], operator: not_any_of}
+                  ]
+                  operator: and
                 }) {
                   cursor
                   items {
@@ -195,7 +205,7 @@ def get_subitems_with_eta_yesterday():
                 }
               }
             }
-            """ % YESTERDAY
+            """ % today_str
             data = monday_query(q)
 
         page = data["boards"][0]["items_page"]
@@ -396,7 +406,7 @@ def main(dry_run=False):
     print(f"=== Monday + Smartling Agent {mode}===")
     print(f"Looking for subitems with ETA = {YESTERDAY}\n")
 
-    subitems = get_subitems_with_eta_yesterday()
+    subitems = get_subitems_overdue()
     print(f"Found {len(subitems)} subitem(s) with ETA = {YESTERDAY}\n")
 
     if not subitems:
