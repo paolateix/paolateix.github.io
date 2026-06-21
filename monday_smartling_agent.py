@@ -142,7 +142,7 @@ def monday_query(query, variables=None):
     payload = {"query": query}
     if variables:
         payload["variables"] = variables
-    r = requests.post("https://api.monday.com/v2", json=payload, headers=headers)
+    r = requests.post("https://api.monday.com/v2", json=payload, headers=headers, timeout=30)
     r.raise_for_status()
     data = r.json()
     if "errors" in data:
@@ -283,6 +283,7 @@ def smartling_token():
         "https://api.smartling.com/auth-api/v2/authenticate",
         json={"userIdentifier": env["SMARTLING_USER_ID"],
               "userSecret": env["SMARTLING_USER_SECRET"]},
+        timeout=30,
     )
     r.raise_for_status()
     _sl_token = r.json()["response"]["data"]["accessToken"]
@@ -294,6 +295,7 @@ def sl_get(path, params=None):
         f"https://api.smartling.com{path}",
         headers={"Authorization": f"Bearer {smartling_token()}"},
         params=params,
+        timeout=30,
     )
     r.raise_for_status()
     return r.json()["response"]["data"]
@@ -305,6 +307,7 @@ def sl_post(path, body):
         headers={"Authorization": f"Bearer {smartling_token()}",
                  "Content-Type": "application/json"},
         json=body,
+        timeout=30,
     )
     r.raise_for_status()
     return r.json()["response"]["data"]
@@ -368,6 +371,7 @@ def publish_locales_for_strings(project_id, string_uids, locale_ids):
                 f"https://api.smartling.com/strings-api/v2/projects/{project_id}/translations",
                 headers={"Authorization": f"Bearer {smartling_token()}"},
                 params=params,
+                timeout=30,
             )
             r.raise_for_status()
             trans_data = r.json()["response"]["data"].get("translationData", [])
@@ -492,6 +496,7 @@ def main(dry_run=False):
                             f"https://api.smartling.com/strings-api/v2/projects/{project_id}/translations",
                             headers={"Authorization": f"Bearer {smartling_token()}"},
                             params=params,
+                            timeout=30,
                         )
                         r.raise_for_status()
                         trans_data = r.json()["response"]["data"].get("translationData", [])
