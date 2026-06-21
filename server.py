@@ -45,10 +45,10 @@ class Handler(BaseHTTPRequestHandler):
         if dry_run:
             cmd.append("--dry-run")
 
-        try:
-            env = os.environ.copy()
+        env = os.environ.copy()
         env["PYTHONUNBUFFERED"] = "1"
-        result = subprocess.run(
+        try:
+            result = subprocess.run(
                 cmd,
                 cwd=os.path.dirname(SCRIPT),
                 capture_output=True,
