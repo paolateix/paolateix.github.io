@@ -301,33 +301,77 @@ def sl_post(path, body):
 
 
 def parse_smartling_url(url):
-    """Return (project_id, tags, key_names) from a Smartling strings filter URL."""
-    m = re.search(r"/projects/([^/]+)/", urlparse(url).path)
+    """Return (project_id, job_id, tags, key_names) from a Smartling URL.
+    Supports both job URLs (/jobs/<id>) and strings filter URLs.
+    """
+    parsed = urlparse(url)
+    m = re.search(r"/projects/([^/]+)/", parsed.path)
     if not m:
-        return None, [], []
+        return None, None, [], []
     project_id = m.group(1)
-    params = parse_qs(urlparse(url).query)
+
+    # Detect job URL: /strings/jobs/<job_uid>
+    job_m = re.search(r"/jobs/([^/?]+)", parsed.path)
+    job_id = job_m.group(1) if job_m else None
+
+    params = parse_qs(parsed.query)
     tags = [unquote(t) for t in params.get("tagsFilter.keywords[]", [])]
     keys = [unquote(k) for k in params.get("keyVariantFilter.keyword[]", [])]
-    return project_id, tags, keys
+    return project_id, job_id, tags, keys
 
 
 _tag_uid_cache = {}
 
 def get_string_uids_by_tag(project_id, tag):
-    """Return all string hashcodes in a project matching a tag (cached per project+tag)."""
+    """Return all string hashcodes in a project matching a tag via the translations API."""
     cache_key = (project_id, tag)
+    if cache_key in _tag_uid_cache:
+        return _tag_uid_cache[cache_key]
+    # Use the translations endpoint with tagName filter to discover hashcodes
+    # We sample one locale to get the hashcodes (they're the same across locales)
+    locales = get_project_locale_ids(project_id)
+    if not locales:
+        return []
+    sample_locale = sorted(locales)[0]
+    uids, offset = [], 0
+    while True:
+        r = requests.get(
+            f"https://api.smartling.com/strings-api/v2/projects/{project_id}/translations",
+            headers={"Authorization": f"Bearer {smartling_token()}"},
+            params={"targetLocaleId": sample_locale, "tagName": tag, "limit": 500, "offset": offset},
+            timeout=30,
+        )
+        r.raise_for_status()
+        data = r.json()["response"]["data"]
+        items = data.get("items", [])
+        uids.extend(item["hashcode"] for item in items if "hashcode" in item)
+        if len(items) < 500:
+            break
+        offset += 500
+    _tag_uid_cache[cache_key] = uids
+    return uids
+
+
+def get_string_uids_by_job(project_id, job_id):
+    """Return all string hashcodes associated with a Smartling job."""
+    cache_key = (project_id, job_id)
     if cache_key in _tag_uid_cache:
         return _tag_uid_cache[cache_key]
     uids, offset = [], 0
     while True:
-        data = sl_get(f"/strings-api/v2/projects/{project_id}",
-                      {"tag": tag, "limit": 500, "offset": offset})
-        items = data.get("items", [])
-        uids.extend(item["hashcode"] for item in items)
-        if len(items) < 500:
+        try:
+            data = sl_get(
+                f"/jobs-api/v3/projects/{project_id}/jobs/{job_id}/strings",
+                {"limit": 500, "offset": offset},
+            )
+            items = data.get("items", [])
+            uids.extend(item["hashcode"] for item in items if "hashcode" in item)
+            if len(items) < 500:
+                break
+            offset += 500
+        except Exception as e:
+            print(f"    Warning: could not fetch job strings: {e}")
             break
-        offset += 500
     _tag_uid_cache[cache_key] = uids
     return uids
 
@@ -435,15 +479,19 @@ def main(dry_run=False):
             continue
 
         print(f"    Smartling URL: {task_link_url[:90]}...")
-        project_id, tags, keys = parse_smartling_url(task_link_url)
+        project_id, job_id, tags, keys = parse_smartling_url(task_link_url)
         if not project_id:
             print("    Could not parse project ID — skipping.\n")
             continue
-        print(f"    Project: {project_id} | Tags: {tags} | Keys count: {len(keys)}")
+        print(f"    Project: {project_id} | Job: {job_id} | Tags: {tags} | Keys count: {len(keys)}")
 
         # Resolve string UIDs
         string_uids = []
-        if tags:
+        if job_id:
+            uids = get_string_uids_by_job(project_id, job_id)
+            print(f"    Job '{job_id}' → {len(uids)} string(s)")
+            string_uids.extend(uids)
+        elif tags:
             for tag in tags:
                 uids = get_string_uids_by_tag(project_id, tag)
                 print(f"    Tag '{tag}' → {len(uids)} string(s)")
