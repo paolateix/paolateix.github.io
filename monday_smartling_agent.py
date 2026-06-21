@@ -176,6 +176,7 @@ def get_subitems_overdue():
     """
     data = monday_query(q)
     subitems = data["items"][0]["subitems"] if data["items"] else []
+    print(f"[debug] {len(subitems)} subitems fetched from parent item, today={today}")
 
     for sub in subitems:
         cv_map = {cv["id"]: cv for cv in sub["column_values"]}
@@ -184,18 +185,22 @@ def get_subitems_overdue():
         eta_cv = cv_map.get(ETA_COL, {})
         eta_text = (eta_cv.get("text") or "").strip()
         if not eta_text:
+            print(f"[debug] skip '{sub['name']}': no ETA")
             continue
         try:
             eta_date = date.fromisoformat(eta_text)
         except ValueError:
+            print(f"[debug] skip '{sub['name']}': bad ETA '{eta_text}'")
             continue
         if eta_date >= today:
-            continue  # not yet overdue
+            print(f"[debug] skip '{sub['name']}': ETA {eta_text} not overdue")
+            continue
 
         # Filter out already Done
         status_cv = cv_map.get(TASK_STATUS_COL, {})
         status_text = (status_cv.get("text") or "").strip().lower()
         if status_text == "done":
+            print(f"[debug] skip '{sub['name']}': status=done")
             continue
 
         results.append({
