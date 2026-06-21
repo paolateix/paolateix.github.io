@@ -1,11 +1,7 @@
 name: Monday + Smartling Agent
 
 on:
-  schedule:
-    # 9:00 AM Israel time (UTC+3) — runs Sunday through Friday
-    # Sunday: checks Friday's ETAs; Mon–Fri: checks yesterday's ETAs
-    - cron: '0 6 * * 0-5'
-  workflow_dispatch:  # also allow manual trigger from GitHub Actions tab
+  workflow_dispatch:  # manual trigger only — enable schedule below once verified
 
 jobs:
   run-agent:
