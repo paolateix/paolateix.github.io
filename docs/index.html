@@ -100,6 +100,22 @@
     .status.success { background: #1a2e22; border: 1px solid #2d6a4f; color: #6ee7b7; display: block; }
     .status.error   { background: #2e1a1a; border: 1px solid #6a2d2d; color: #fc8181; display: block; }
 
+    .log-box {
+      margin-top: 14px;
+      background: #0a0812;
+      border: 1px solid #2e1f5e;
+      border-radius: 8px;
+      padding: 14px;
+      font-family: monospace;
+      font-size: 12px;
+      color: #d4c5ff;
+      text-align: left;
+      white-space: pre-wrap;
+      max-height: 320px;
+      overflow-y: auto;
+      line-height: 1.6;
+    }
+
     .status a { color: inherit; font-weight: 600; }
 
     .spinner {
@@ -245,6 +261,48 @@
       el.innerHTML = html;
     }
 
+    const ghHeaders = (token) => ({
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+    });
+
+    async function ghGet(token, path) {
+      const r = await fetch(`https://api.github.com${path}`, { headers: ghHeaders(token) });
+      if (!r.ok) throw new Error(`GitHub API ${r.status}: ${path}`);
+      return r.json();
+    }
+
+    async function pollUntilComplete(token, runId) {
+      for (let i = 0; i < 60; i++) {
+        await new Promise(r => setTimeout(r, 5000));
+        const data = await ghGet(token, `/repos/${REPO}/actions/runs/${runId}`);
+        if (data.status === 'completed') return data;
+        setStatus('loading', `<span class="spinner"></span> Running… (${Math.round((i + 1) * 5)}s)`);
+      }
+      throw new Error('Timed out waiting for run to complete (5 min).');
+    }
+
+    async function fetchLog(token, runId) {
+      const jobs = await ghGet(token, `/repos/${REPO}/actions/runs/${runId}/jobs`);
+      const job = jobs.jobs?.[0];
+      if (!job) return null;
+
+      // GitHub returns a redirect to a pre-signed log URL
+      const logRes = await fetch(
+        `https://api.github.com/repos/${REPO}/actions/jobs/${job.id}/logs`,
+        { headers: ghHeaders(token), redirect: 'follow' }
+      );
+      if (!logRes.ok) return null;
+      const raw = await logRes.text();
+
+      // Strip timestamp prefixes (2026-06-21T09:00:00.000Z  ) and GitHub step banners
+      return raw
+        .split('\n')
+        .map(l => l.replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s+/, ''))
+        .filter(l => !l.startsWith('##[') && l.trim() !== '')
+        .join('\n');
+    }
+
     async function runAgent(isDryRun = false) {
       const token = loadToken();
       if (!token) {
@@ -260,51 +318,53 @@
       setStatus('loading', `<span class="spinner"></span> Triggering ${label.toLowerCase()}…`);
 
       try {
-        // Trigger the workflow
+        // 1. Trigger workflow
         const triggerRes = await fetch(
           `https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/dispatches`,
           {
             method: 'POST',
-            headers: {
-              Authorization: `Bearer ${token}`,
-              Accept: 'application/vnd.github+json',
-              'Content-Type': 'application/json',
-            },
+            headers: { ...ghHeaders(token), 'Content-Type': 'application/json' },
             body: JSON.stringify({ ref: BRANCH, inputs: { dry_run: isDryRun ? 'true' : 'false' } }),
           }
         );
-
         if (!triggerRes.ok) {
           const err = await triggerRes.json().catch(() => ({}));
           throw new Error(err.message || `HTTP ${triggerRes.status}`);
         }
 
-        setStatus('loading', `<span class="spinner"></span> ${label} started — fetching run link…`);
+        // 2. Wait briefly then get the run ID
+        setStatus('loading', `<span class="spinner"></span> ${label} queued — waiting for run to start…`);
+        await new Promise(r => setTimeout(r, 4000));
 
-        // Wait a moment then grab the latest run URL
-        await new Promise(r => setTimeout(r, 3500));
-
-        const runsRes = await fetch(
-          `https://api.github.com/repos/${REPO}/actions/runs?per_page=1&branch=${BRANCH}`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-              Accept: 'application/vnd.github+json',
-            },
-          }
-        );
-
-        const runsData = await runsRes.json();
+        const runsData = await ghGet(token, `/repos/${REPO}/actions/runs?per_page=1&branch=${BRANCH}`);
         const run = runsData.workflow_runs?.[0];
+        if (!run) throw new Error('Could not find the triggered run.');
 
-        if (run) {
+        setStatus('loading', `<span class="spinner"></span> Running… <a href="${run.html_url}" target="_blank" style="color:inherit">(open in GitHub)</a>`);
+
+        // 3. Poll until done
+        const completed = await pollUntilComplete(token, run.id);
+        const succeeded = completed.conclusion === 'success';
+
+        // 4. Fetch and show log (dry run only — for real runs just show result)
+        if (isDryRun) {
+          setStatus('loading', `<span class="spinner"></span> Fetching preview output…`);
+          const log = await fetchLog(token, run.id).catch(() => null);
+          const logHtml = log
+            ? `<div class="log-box">${log.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>`
+            : `<br><a href="${completed.html_url}" target="_blank">→ View full log on GitHub</a>`;
+
           setStatus(
-            'success',
-            `✅ Agent is running!<br><br>
-             <a href="${run.html_url}" target="_blank">→ View live run on GitHub Actions</a>`
+            succeeded ? 'success' : 'error',
+            `${succeeded ? '🔍 Dry run complete — here\'s what would happen:' : '❌ Dry run failed — see log below:'}${logHtml}`
           );
         } else {
-          setStatus('success', '✅ Agent triggered successfully. Check <a href="https://github.com/' + REPO + '/actions" target="_blank">GitHub Actions</a> for the run.');
+          setStatus(
+            succeeded ? 'success' : 'error',
+            succeeded
+              ? `✅ Done! <a href="${completed.html_url}" target="_blank">→ View run log</a>`
+              : `❌ Run failed. <a href="${completed.html_url}" target="_blank">→ View error log</a>`
+          );
         }
 
       } catch (e) {
