@@ -116,8 +116,6 @@
       line-height: 1.6;
     }
 
-    .status a { color: inherit; font-weight: 600; }
-
     .spinner {
       display: inline-block;
       width: 14px; height: 14px;
@@ -131,6 +129,11 @@
 
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    .server-note {
+      margin-top: 28px;
+      font-size: 12px;
+      color: #4a3f6b;
+    }
   </style>
 </head>
 <body>
@@ -153,17 +156,11 @@
 
     <div class="status" id="status"></div>
 
+    <p class="server-note">Requires <code>server.py</code> running locally</p>
   </div>
 
   <script>
-    const REPO   = 'paolateix/monday-smartling-agent';
-    const BRANCH = 'main';
-    const WORKFLOW_FILE = 'monday_smartling.yml';
-    const GH_TOKEN = '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';
-
-    function loadToken() {
-      return GH_TOKEN;
-    }
+    const SERVER = 'http://localhost:7432';
 
     function setStatus(type, html) {
       const el = document.getElementById('status');
@@ -171,115 +168,44 @@
       el.innerHTML = html;
     }
 
-    const ghHeaders = (token) => ({
-      Authorization: `Bearer ${token}`,
-      Accept: 'application/vnd.github+json',
-    });
-
-    async function ghGet(token, path) {
-      const r = await fetch(`https://api.github.com${path}`, { headers: ghHeaders(token) });
-      if (!r.ok) throw new Error(`GitHub API ${r.status}: ${path}`);
-      return r.json();
-    }
-
-    async function pollUntilComplete(token, runId) {
-      for (let i = 0; i < 60; i++) {
-        await new Promise(r => setTimeout(r, 5000));
-        const data = await ghGet(token, `/repos/${REPO}/actions/runs/${runId}`);
-        if (data.status === 'completed') return data;
-        setStatus('loading', `<span class="spinner"></span> Running… (${Math.round((i + 1) * 5)}s)`);
-      }
-      throw new Error('Timed out waiting for run to complete (5 min).');
-    }
-
-    async function fetchLog(token, runId) {
-      const jobs = await ghGet(token, `/repos/${REPO}/actions/runs/${runId}/jobs`);
-      const job = jobs.jobs?.[0];
-      if (!job) return null;
-
-      // GitHub returns a redirect to a pre-signed log URL
-      const logRes = await fetch(
-        `https://api.github.com/repos/${REPO}/actions/jobs/${job.id}/logs`,
-        { headers: ghHeaders(token), redirect: 'follow' }
-      );
-      if (!logRes.ok) return null;
-      const raw = await logRes.text();
-
-      // Strip timestamp prefixes (2026-06-21T09:00:00.000Z  ) and GitHub step banners
-      return raw
-        .split('\n')
-        .map(l => l.replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s+/, ''))
-        .filter(l => !l.startsWith('##[') && l.trim() !== '')
-        .join('\n');
-    }
-
     async function runAgent(isDryRun = false) {
-      const token = loadToken();
-      if (!token) {
-        setStatus('error', '⚠️ No GitHub token saved. Open ⚙️ setup below and add your token first.');
-        return;
-      }
-
       const runBtn = document.getElementById('runBtn');
       const dryBtn = document.getElementById('dryBtn');
       runBtn.disabled = true;
       dryBtn.disabled = true;
       const label = isDryRun ? 'Dry run' : 'Agent';
-      setStatus('loading', `<span class="spinner"></span> Triggering ${label.toLowerCase()}…`);
+      setStatus('loading', `<span class="spinner"></span> Running ${label.toLowerCase()}…`);
 
       try {
-        // 1. Trigger workflow
-        const triggerRes = await fetch(
-          `https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/dispatches`,
-          {
-            method: 'POST',
-            headers: { ...ghHeaders(token), 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ref: BRANCH, inputs: { dry_run: isDryRun ? 'true' : 'false' } }),
-          }
-        );
-        if (!triggerRes.ok) {
-          const err = await triggerRes.json().catch(() => ({}));
-          throw new Error(err.message || `HTTP ${triggerRes.status}`);
-        }
+        const res = await fetch(`${SERVER}/run?dry_run=${isDryRun}`, { method: 'POST' });
+        if (!res.ok) throw new Error(`Server error: HTTP ${res.status}`);
+        const data = await res.json();
 
-        // 2. Wait briefly then get the run ID
-        setStatus('loading', `<span class="spinner"></span> ${label} queued — waiting for run to start…`);
-        await new Promise(r => setTimeout(r, 4000));
+        const output = (data.output || '').trim();
+        const noTasks = output.includes('Nothing to do');
 
-        const runsData = await ghGet(token, `/repos/${REPO}/actions/runs?per_page=1&branch=${BRANCH}`);
-        const run = runsData.workflow_runs?.[0];
-        if (!run) throw new Error('Could not find the triggered run.');
-
-        setStatus('loading', `<span class="spinner"></span> Running… <a href="${run.html_url}" target="_blank" style="color:inherit">(open in GitHub)</a>`);
-
-        // 3. Poll until done
-        const completed = await pollUntilComplete(token, run.id);
-        const succeeded = completed.conclusion === 'success';
-
-        // 4. Fetch and show log (dry run only — for real runs just show result)
-        // Fetch log for both modes — needed to detect "nothing to do"
-        setStatus('loading', `<span class="spinner"></span> Fetching results…`);
-        const log = await fetchLog(token, run.id).catch(() => null);
-        const noTasks = log && log.includes('Nothing to do');
-
-        if (!succeeded) {
-          const logHtml = log
-            ? `<div class="log-box">${log.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>`
-            : `<a href="${completed.html_url}" target="_blank">→ View error log</a>`;
-          setStatus('error', `❌ ${isDryRun ? 'Dry run' : 'Run'} failed — see log below:<br>${logHtml}`);
+        if (!data.success) {
+          const logHtml = output
+            ? `<div class="log-box">${output.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>`
+            : '';
+          setStatus('error', `❌ ${label} failed:${logHtml}`);
         } else if (noTasks) {
           setStatus('success', `✅ No actions to take — no overdue tasks found.`);
         } else if (isDryRun) {
-          const logHtml = log
-            ? `<div class="log-box">${log.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>`
-            : `<a href="${completed.html_url}" target="_blank">→ View full log on GitHub</a>`;
+          const logHtml = output
+            ? `<div class="log-box">${output.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>`
+            : '';
           setStatus('success', `🔍 Here's what Run Agent would do:${logHtml}`);
         } else {
           setStatus('success', `✅ Complete`);
         }
 
       } catch (e) {
-        setStatus('error', `❌ Error: ${e.message}`);
+        if (e.message.includes('Failed to fetch') || e.message.includes('NetworkError')) {
+          setStatus('error', `❌ Cannot reach the local server.<br><br>Make sure <code>server.py</code> is running:<br><code style="font-size:12px">python server.py</code>`);
+        } else {
+          setStatus('error', `❌ Error: ${e.message}`);
+        }
       } finally {
         runBtn.disabled = false;
         dryBtn.disabled = false;
