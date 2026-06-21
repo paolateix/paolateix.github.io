@@ -325,8 +325,13 @@ def parse_smartling_url(url):
     return project_id, tags, keys
 
 
+_tag_uid_cache = {}
+
 def get_string_uids_by_tag(project_id, tag):
-    """Return all string hashcodes in a project matching a tag."""
+    """Return all string hashcodes in a project matching a tag (cached per project+tag)."""
+    cache_key = (project_id, tag)
+    if cache_key in _tag_uid_cache:
+        return _tag_uid_cache[cache_key]
     uids, offset = [], 0
     while True:
         data = sl_get(f"/strings-api/v2/projects/{project_id}",
@@ -336,14 +341,21 @@ def get_string_uids_by_tag(project_id, tag):
         if len(items) < 500:
             break
         offset += 500
+    _tag_uid_cache[cache_key] = uids
     return uids
 
 
+_locale_cache = {}
+
 def get_project_locale_ids(project_id):
-    """Return the set of locale IDs configured on the project."""
+    """Return the set of locale IDs configured on the project (cached per project)."""
+    if project_id in _locale_cache:
+        return _locale_cache[project_id]
     try:
         data = sl_get(f"/projects-api/v2/projects/{project_id}")
-        return {loc["localeId"] for loc in data.get("targetLocales", [])}
+        result = {loc["localeId"] for loc in data.get("targetLocales", [])}
+        _locale_cache[project_id] = result
+        return result
     except Exception as e:
         print(f"    Warning: could not fetch project locales: {e}")
         return set()
@@ -483,30 +495,7 @@ def main(dry_run=False):
         published_locales = []
         if string_uids and target_locales:
             if dry_run:
-                # In dry-run: only check translation status, don't publish
                 print(f"    [DRY RUN] Would publish {len(string_uids)} string(s) for: {target_locales}")
-                print(f"    Checking current translation states (read-only)...")
-                batch = string_uids[:500]
-                for locale_id in target_locales:
-                    try:
-                        params = [("localeId", locale_id)]
-                        for uid in batch:
-                            params.append(("hashcodes[]", uid))
-                        r = requests.get(
-                            f"https://api.smartling.com/strings-api/v2/projects/{project_id}/translations",
-                            headers={"Authorization": f"Bearer {smartling_token()}"},
-                            params=params,
-                            timeout=30,
-                        )
-                        r.raise_for_status()
-                        trans_data = r.json()["response"]["data"].get("translationData", [])
-                        states = {}
-                        for t in trans_data:
-                            s = t.get("translationState", "UNKNOWN")
-                            states[s] = states.get(s, 0) + 1
-                        print(f"      {locale_id}: {states}")
-                    except Exception as e:
-                        print(f"      {locale_id}: error reading status — {e}")
             else:
                 print(f"    Publishing {len(string_uids)} string(s) for {target_locales}...")
                 published_locales = publish_locales_for_strings(project_id, string_uids, target_locales)
