@@ -315,9 +315,17 @@ def parse_smartling_url(url):
     job_id = job_m.group(1) if job_m else None
 
     params = parse_qs(parsed.query)
+
+    # Also detect job UIDs from translationJobsFilter query param
+    if not job_id:
+        job_uids = params.get("translationJobsFilter.translationJobUids[]", [])
+        if job_uids:
+            job_id = unquote(job_uids[0])  # use first job UID
+
     tags = [unquote(t) for t in params.get("tagsFilter.keywords[]", [])]
     keys = [unquote(k) for k in params.get("keyVariantFilter.keyword[]", [])]
-    return project_id, job_id, tags, keys
+    file_uris = [unquote(u) for u in params.get("urlsFilter.urls", [])]
+    return project_id, job_id, tags, keys, file_uris
 
 
 _tag_uid_cache = {}
@@ -339,6 +347,34 @@ def get_string_uids_by_tag(project_id, tag):
             f"https://api.smartling.com/strings-api/v2/projects/{project_id}/translations",
             headers={"Authorization": f"Bearer {smartling_token()}"},
             params={"targetLocaleId": sample_locale, "tagName": tag, "limit": 500, "offset": offset},
+            timeout=30,
+        )
+        r.raise_for_status()
+        data = r.json()["response"]["data"]
+        items = data.get("items", [])
+        uids.extend(item["hashcode"] for item in items if "hashcode" in item)
+        if len(items) < 500:
+            break
+        offset += 500
+    _tag_uid_cache[cache_key] = uids
+    return uids
+
+
+def get_string_uids_by_file_uri(project_id, file_uri):
+    """Return hashcodes for all strings in a project with a matching file URI."""
+    cache_key = (project_id, "file:" + file_uri)
+    if cache_key in _tag_uid_cache:
+        return _tag_uid_cache[cache_key]
+    locales = get_project_locale_ids(project_id)
+    if not locales:
+        return []
+    locale = sorted(locales)[0]
+    uids, offset = [], 0
+    while True:
+        r = requests.get(
+            f"https://api.smartling.com/strings-api/v2/projects/{project_id}/translations",
+            headers={"Authorization": f"Bearer {smartling_token()}"},
+            params={"targetLocaleId": locale, "fileUri": file_uri, "limit": 500, "offset": offset},
             timeout=30,
         )
         r.raise_for_status()
@@ -444,24 +480,24 @@ def publish_locales_for_strings(project_id, string_uids, locale_ids):
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main(dry_run=False):
-    mode = "[DRY RUN] " if dry_run else ""
-    print(f"=== Monday + Smartling Agent {mode}===")
-    print(f"Looking for subitems with ETA = {YESTERDAY}\n")
-
     subitems = get_subitems_overdue()
-    print(f"Found {len(subitems)} subitem(s) with ETA = {YESTERDAY}\n")
 
     if not subitems:
         print("Nothing to do.")
         return
 
-    # Authenticate Smartling eagerly so failures surface early
-    smartling_token()
-    print("Smartling: authenticated\n")
+    if dry_run:
+        print(f"Dry run — {len(subitems)} overdue task(s) found:\n")
+
+    smartling_token()  # authenticate early
+
+    locale_to_lang = {}
+    for lang, locs in LANG_TO_LOCALES.items():
+        for loc in locs:
+            locale_to_lang[loc] = lang
 
     for sub in subitems:
-        print(f"─── {sub['subitem_name']} (id={sub['subitem_id']}) ───")
-        print(f"    Parent item: {sub['parent_name']}")
+        name = sub["subitem_name"]
 
         # Get Smartling URL
         tl_cv = sub["cv_map"].get(TASK_LINK_COL) or {}
@@ -475,47 +511,26 @@ def main(dry_run=False):
             task_link_url = tl_cv.get("text") or ""
 
         if "dashboard.smartling.com" not in task_link_url:
-            print("    No Smartling link found — skipping.\n")
-            continue
+            continue  # no Smartling link — skip silently
 
-        print(f"    Smartling URL: {task_link_url[:90]}...")
-        project_id, job_id, tags, keys = parse_smartling_url(task_link_url)
+        project_id, job_id, tags, keys, file_uris = parse_smartling_url(task_link_url)
         if not project_id:
-            print("    Could not parse project ID — skipping.\n")
             continue
-        print(f"    Project: {project_id} | Job: {job_id} | Tags: {tags} | Keys count: {len(keys)}")
 
         # Resolve string UIDs
         string_uids = []
         if job_id:
-            uids = get_string_uids_by_job(project_id, job_id)
-            print(f"    Job '{job_id}' → {len(uids)} string(s)")
-            string_uids.extend(uids)
+            string_uids = get_string_uids_by_job(project_id, job_id)
         elif tags:
             for tag in tags:
-                uids = get_string_uids_by_tag(project_id, tag)
-                print(f"    Tag '{tag}' → {len(uids)} string(s)")
-                string_uids.extend(uids)
-        elif keys:
-            print("    Key-based URL detected. Will use Monday language status columns to target locales.")
+                string_uids.extend(get_string_uids_by_tag(project_id, tag))
+        elif file_uris:
+            for furi in file_uris:
+                string_uids.extend(get_string_uids_by_file_uri(project_id, furi))
 
-        # Determine which languages are in progress
+        # Determine target locales from Monday in-progress language columns
         in_progress_langs = get_in_progress_languages(sub["cv_map"])
-        print(f"    In-progress languages (Monday status): {in_progress_langs or 'none'}")
-
-        if not in_progress_langs and not string_uids:
-            print(f"    No in-progress languages and no strings found.")
-            if dry_run:
-                print("    [DRY RUN] Would set Task Status → Done.\n")
-            else:
-                print("    Setting Task Status → Done.\n")
-                set_task_status_done(sub["subitem_id"])
-            continue
-
-        # Map Monday language labels → Smartling locale IDs
         project_locale_ids = get_project_locale_ids(project_id)
-        print(f"    Project locales in Smartling: {sorted(project_locale_ids)}")
-
         target_locales = []
         for lang in in_progress_langs:
             for candidate in LANG_TO_LOCALES.get(lang, []):
@@ -523,55 +538,32 @@ def main(dry_run=False):
                     target_locales.append(candidate)
                     break
 
-        if not target_locales and in_progress_langs:
-            print("    Warning: could not map any in-progress languages to Smartling locales.")
-
-        # Check / publish in Smartling
-        published_locales = []
-        if string_uids and target_locales:
+        if not in_progress_langs and not string_uids:
+            # Nothing to publish — just mark done
             if dry_run:
-                print(f"    [DRY RUN] Would publish {len(string_uids)} string(s) for: {target_locales}")
+                print(f"• {name}\n  → Mark as Done (no languages in progress)")
             else:
-                print(f"    Publishing {len(string_uids)} string(s) for {target_locales}...")
-                published_locales = publish_locales_for_strings(project_id, string_uids, target_locales)
-
-        elif string_uids and not target_locales:
-            if dry_run:
-                print(f"    [DRY RUN] No specific in-progress langs; would check all project locales.")
-            else:
-                print(f"    No specific in-progress langs; checking all project locales...")
-                published_locales = publish_locales_for_strings(
-                    project_id, string_uids, list(project_locale_ids)
-                )
-        else:
-            print("    No string UIDs available (key-based URL) — Smartling publish not possible via API.")
-
-        # Build human-readable language names
-        locale_to_lang = {}
-        for lang, locs in LANG_TO_LOCALES.items():
-            for loc in locs:
-                locale_to_lang[loc] = lang
+                set_task_status_done(sub["subitem_id"])
+            continue
 
         if dry_run:
-            if target_locales:
-                lang_names = [locale_to_lang.get(loc, loc) for loc in target_locales]
-                print(f"    [DRY RUN] Would post Monday comment tagging Sanne Heijmans:")
-                print(f"             \"I published the languages {', '.join(lang_names)} that were due.\"")
-            print(f"    [DRY RUN] Would set Task Status → Done.\n")
+            if in_progress_langs:
+                print(f"• {name}\n  → Publish: {', '.join(in_progress_langs)}")
+            else:
+                print(f"• {name}\n  → Mark as Done")
         else:
+            published_locales = []
+            if string_uids and target_locales:
+                published_locales = publish_locales_for_strings(project_id, string_uids, target_locales)
+            elif string_uids:
+                published_locales = publish_locales_for_strings(project_id, string_uids, list(project_locale_ids))
+
             if published_locales:
                 published_lang_names = [locale_to_lang.get(loc, loc) for loc in published_locales]
-                print(f"    Posting Monday comment (published: {published_lang_names})...")
                 post_monday_comment(sub["subitem_id"], published_lang_names)
-                print("    Comment posted.")
-            else:
-                print("    No locales were published — skipping comment.")
-
-            print(f"    Setting Task Status → Done...")
             set_task_status_done(sub["subitem_id"])
-            print(f"    Done!\n")
 
-    print("=== Agent finished ===")
+    print("\nDone.")
 
 
 if __name__ == "__main__":
