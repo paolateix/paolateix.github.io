@@ -186,7 +186,7 @@ def get_subitems_overdue():
               boards(ids: [9991673115]) {
                 items_page(limit: 200, query_params: {
                   rules: [
-                    {column_id: "date0", compare_value: ["%s"], operator: lower_than_or_equal},
+                    {column_id: "date0", compare_value: ["%s"], operator: lower_than},
                     {column_id: "color_mkyf691e", compare_value: ["Done"], operator: not_any_of}
                   ]
                   operator: and
