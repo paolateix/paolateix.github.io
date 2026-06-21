@@ -13,6 +13,7 @@ import threading
 
 PORT = 7432
 SCRIPT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "monday_smartling_agent.py")
+VENV_PYTHON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "venv", "bin", "python")
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -39,17 +40,21 @@ class Handler(BaseHTTPRequestHandler):
         params = parse_qs(parsed.query)
         dry_run = params.get("dry_run", ["false"])[0] == "true"
 
-        cmd = [sys.executable, SCRIPT]
+        python = VENV_PYTHON if os.path.exists(VENV_PYTHON) else sys.executable
+        cmd = [python, SCRIPT]
         if dry_run:
             cmd.append("--dry-run")
 
         try:
-            result = subprocess.run(
+            env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
+        result = subprocess.run(
                 cmd,
                 cwd=os.path.dirname(SCRIPT),
                 capture_output=True,
                 text=True,
                 timeout=120,
+                env=env,
             )
             output = result.stdout
             if result.stderr:
