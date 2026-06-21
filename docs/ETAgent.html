@@ -191,7 +191,7 @@
       return raw
         .split('\n')
         .map(l => l.replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s+/, ''))
-        .filter(l => !l.startsWith('##[') && l.trim() !== '')
+        .filter(l => !l.startsWith('##[') && !l.startsWith('[debug]') && l.trim() !== '')
         .join('\n');
     }
 
