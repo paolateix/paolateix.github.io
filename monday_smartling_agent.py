@@ -11,6 +11,7 @@ For subitems on board 9991668759 where ETA = yesterday:
 """
 
 import json
+import os
 import re
 import sys
 from datetime import date, timedelta
@@ -18,7 +19,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 import requests
 
-DOTENV_PATH = "/Users/paolat/smartling-screenshot-matcher/.env"
+DOTENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
 BOARD_ID = 9991668759
 
 # On Sundays, look back at Friday (skip Saturday which has no deadlines)
