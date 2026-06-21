@@ -258,7 +258,7 @@
 
         // 4. Fetch and show log (dry run only — for real runs just show result)
         if (isDryRun) {
-          setStatus('loading', `<span class="spinner"></span> Fetching preview output…`);
+          setStatus('loading', `<span class="spinner"></span> Fetching preview…`);
           const log = await fetchLog(token, run.id).catch(() => null);
           const logHtml = log
             ? `<div class="log-box">${log.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>`
@@ -266,14 +266,14 @@
 
           setStatus(
             succeeded ? 'success' : 'error',
-            `${succeeded ? '🔍 Dry run complete — here\'s what would happen:' : '❌ Dry run failed — see log below:'}${logHtml}`
+            `${succeeded ? '🔍 Here\'s what Run Agent would do:' : '❌ Dry run failed — see log below:'}${logHtml}`
           );
         } else {
           setStatus(
             succeeded ? 'success' : 'error',
             succeeded
-              ? `✅ Done! <a href="${completed.html_url}" target="_blank">→ View run log</a>`
-              : `❌ Run failed. <a href="${completed.html_url}" target="_blank">→ View error log</a>`
+              ? `✅ Complete`
+              : `❌ Something went wrong. <a href="${completed.html_url}" target="_blank">→ View error log</a>`
           );
         }
 
