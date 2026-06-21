@@ -205,8 +205,10 @@ def get_subitems_overdue():
 
         page = data["boards"][0]["items_page"]
         for sub in page["items"]:
-            cv_map = {cv["id"]: cv for cv in sub["column_values"]}
             parent = sub.get("parent_item") or {}
+            if parent.get("id") != "12180635204":
+                continue  # only process subitems under "Reviewed tasks"
+            cv_map = {cv["id"]: cv for cv in sub["column_values"]}
             results.append({
                 "subitem_id": sub["id"],
                 "subitem_name": sub["name"],
