@@ -251,7 +251,10 @@
             : `<a href="${completed.html_url}" target="_blank">→ View error log</a>`;
           setStatus('error', `❌ ${isDryRun ? 'Dry run' : 'Run'} failed:<br>${logHtml}`);
         } else if (noTasks) {
-          setStatus('success', `✅ No actions to take — no overdue tasks found.`);
+          const logHtml = log
+            ? `<div class="log-box">${log.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>`
+            : '';
+          setStatus('success', `✅ No actions to take — no overdue tasks found.${logHtml}`);
         } else if (isDryRun) {
           const logHtml = log
             ? `<div class="log-box">${log.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>`
