@@ -153,72 +153,57 @@ def monday_query(query, variables=None):
 SUBITEMS_BOARD_ID = 9991673115  # "Subitems of Product Localization Tasks"
 
 
+REVIEWED_TASKS_ITEM_ID = 12180635204  # "Reviewed tasks" parent item
+
 def get_subitems_overdue():
     """
-    Query the subitems board for all subitems where ETA <= today (overdue or due today).
-    Uses 'lower_than_or_equal' operator so it catches yesterday AND any older missed tasks.
-    Excludes subitems already marked Done.
+    Fetch subitems directly from the 'Reviewed tasks' parent item (12180635204),
+    then filter locally for ETA < today and status != Done.
+    Much faster than scanning the whole subitems board.
     """
+    today = date.today()
     results = []
-    cursor = None
-    today_str = date.today().strftime("%Y-%m-%d")
 
-    while True:
-        if cursor:
-            q = """
-            query($cursor: String!) {
-              boards(ids: [9991673115]) {
-                items_page(limit: 200, cursor: $cursor) {
-                  cursor
-                  items {
-                    id name
-                    parent_item { id name }
-                    column_values { id type text value }
-                  }
-                }
-              }
-            }
-            """
-            data = monday_query(q, {"cursor": cursor})
-        else:
-            q = """
-            {
-              boards(ids: [9991673115]) {
-                items_page(limit: 200, query_params: {
-                  rules: [
-                    {column_id: "date0", compare_value: ["%s"], operator: lower_than},
-                    {column_id: "color_mkyf691e", compare_value: ["Done"], operator: not_any_of}
-                  ]
-                  operator: and
-                }) {
-                  cursor
-                  items {
-                    id name
-                    parent_item { id name }
-                    column_values { id type text value }
-                  }
-                }
-              }
-            }
-            """ % today_str
-            data = monday_query(q)
+    q = """
+    {
+      items(ids: [12180635204]) {
+        subitems {
+          id name
+          column_values { id type text value }
+        }
+      }
+    }
+    """
+    data = monday_query(q)
+    subitems = data["items"][0]["subitems"] if data["items"] else []
 
-        page = data["boards"][0]["items_page"]
-        for sub in page["items"]:
-            parent = sub.get("parent_item") or {}
-            if parent.get("id") != "12180635204":
-                continue  # only process subitems under "Reviewed tasks"
-            cv_map = {cv["id"]: cv for cv in sub["column_values"]}
-            results.append({
-                "subitem_id": sub["id"],
-                "subitem_name": sub["name"],
-                "parent_name": parent.get("name", "(unknown)"),
-                "cv_map": cv_map,
-            })
+    for sub in subitems:
+        cv_map = {cv["id"]: cv for cv in sub["column_values"]}
 
-        cursor = page.get("cursor")
-        if not cursor:
-            break
+        # Filter by ETA < today
+        eta_cv = cv_map.get(ETA_COL, {})
+        eta_text = (eta_cv.get("text") or "").strip()
+        if not eta_text:
+            continue
+        try:
+            eta_date = date.fromisoformat(eta_text)
+        except ValueError:
+            continue
+        if eta_date >= today:
+            continue  # not yet overdue
+
+        # Filter out already Done
+        status_cv = cv_map.get(TASK_STATUS_COL, {})
+        status_text = (status_cv.get("text") or "").strip().lower()
+        if status_text == "done":
+            continue
+
+        results.append({
+            "subitem_id": sub["id"],
+            "subitem_name": sub["name"],
+            "parent_name": "Reviewed tasks",
+            "cv_map": cv_map,
+        })
 
     return results
 
