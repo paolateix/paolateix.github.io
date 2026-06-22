@@ -476,10 +476,10 @@ def publish_locales_for_strings(project_id, string_uids, locale_ids):
             r.raise_for_status()
             trans_data = r.json()["response"]["data"].get("translationData", [])
 
-            # Publishable = has a translation that isn't already PUBLISHED
+            # Publishable = has a translation that isn't already published
             publishable = [
                 t for t in trans_data
-                if t.get("translationState") not in ("PUBLISHED", "WAITING_FOR_AUTHORIZATION", None)
+                if t.get("translationState") not in ("PUBLISHED", None)
             ]
             if not publishable:
                 print(f"    {locale_id}: nothing to publish (already done or not started)")
@@ -553,40 +553,44 @@ def main(dry_run=False):
                 string_uids.extend(get_string_uids_by_file_uri(project_id, furi))
         print(f"[debug] '{name}': {len(string_uids)} string UIDs, in_progress will be checked next")
 
-        # Determine target locales from Monday in-progress language columns
-        in_progress_langs = get_in_progress_languages(sub["cv_map"])
         project_locale_ids = get_project_locale_ids(project_id)
-        target_locales = []
-        for lang in in_progress_langs:
-            for candidate in LANG_TO_LOCALES.get(lang, []):
-                if candidate in project_locale_ids:
-                    target_locales.append(candidate)
-                    break
 
-        if not in_progress_langs and not string_uids:
-            # Nothing to publish — just mark done
+        if not string_uids and not job_id:
+            # No way to identify strings — just mark done
             if dry_run:
-                print(f"• {name}\n  → Mark as Done (no languages in progress)")
+                print(f"• {name}\n  → Mark as Done (no Smartling strings found)")
             else:
                 set_task_status_done(sub["subitem_id"], sub["board_id"])
             continue
 
         if dry_run:
-            if in_progress_langs:
-                print(f"• {name}\n  → Publish: {', '.join(in_progress_langs)}")
+            # Show which locales have in-progress strings in Smartling
+            if string_uids:
+                publishable_locales = []
+                for loc in sorted(project_locale_ids):
+                    params = [("localeId", loc)] + [("hashcodes[]", u) for u in string_uids[:500]]
+                    r = requests.get(
+                        f"https://api.smartling.com/strings-api/v2/projects/{project_id}/translations",
+                        headers={"Authorization": f"Bearer {smartling_token()}"},
+                        params=params, timeout=30,
+                    )
+                    if r.ok:
+                        trans_data = r.json()["response"]["data"].get("translationData", [])
+                        if any(t.get("translationState") not in ("PUBLISHED", None) for t in trans_data):
+                            publishable_locales.append(locale_to_lang.get(loc, loc))
+                if publishable_locales:
+                    print(f"• {name}\n  → Publish: {', '.join(sorted(set(publishable_locales)))}")
+                else:
+                    print(f"• {name}\n  → Mark as Done (all strings already published)")
             else:
-                print(f"• {name}\n  → Mark as Done")
+                print(f"• {name}\n  → Publish via job (job_id={job_id})")
         else:
             published_locales = []
-            locales_to_use = target_locales if target_locales else list(project_locale_ids)
 
             if job_id:
-                # Simplest & most reliable: publish the job directly
-                published_locales = publish_job_directly(project_id, job_id, locales_to_use)
+                published_locales = publish_job_directly(project_id, job_id, list(project_locale_ids))
             elif string_uids:
-                published_locales = publish_locales_for_strings(project_id, string_uids, locales_to_use)
-            else:
-                print(f"[debug] '{name}': no job_id and no string_uids — cannot publish")
+                published_locales = publish_locales_for_strings(project_id, string_uids, list(project_locale_ids))
 
             if published_locales:
                 published_lang_names = sorted({locale_to_lang.get(loc, loc) for loc in published_locales})
