@@ -396,6 +396,34 @@ def get_string_uids_by_file_uri(project_id, file_uri):
     return uids
 
 
+def get_string_uids_by_key(project_id, key_name):
+    """Return hashcodes for strings matching a key name (keyVariantFilter)."""
+    cache_key = (project_id, "key:" + key_name)
+    if cache_key in _tag_uid_cache:
+        return _tag_uid_cache[cache_key]
+    locales = get_project_locale_ids(project_id)
+    if not locales:
+        return []
+    locale = sorted(locales)[0]
+    uids, offset = [], 0
+    while True:
+        r = requests.get(
+            f"https://api.smartling.com/strings-api/v2/projects/{project_id}/translations",
+            headers={"Authorization": f"Bearer {smartling_token()}"},
+            params={"targetLocaleId": locale, "keyName": key_name, "limit": 500, "offset": offset},
+            timeout=30,
+        )
+        r.raise_for_status()
+        data = r.json()["response"]["data"]
+        items = data.get("items", [])
+        uids.extend(item["hashcode"] for item in items if "hashcode" in item)
+        if len(items) < 500:
+            break
+        offset += 500
+    _tag_uid_cache[cache_key] = uids
+    return uids
+
+
 def get_string_uids_by_job(project_id, job_id):
     """Return all string hashcodes associated with a Smartling job."""
     cache_key = (project_id, job_id)
@@ -536,7 +564,7 @@ def main(dry_run=False):
             continue  # no Smartling link — skip silently
 
         project_id, job_id, tags, keys, file_uris = parse_smartling_url(task_link_url)
-        print(f"[debug] '{name}': project={project_id} job={job_id} tags={tags} file_uris={file_uris}")
+        print(f"[debug] '{name}': project={project_id} job={job_id} tags={tags} keys={keys} file_uris={file_uris}")
         if not project_id:
             print(f"[debug] skip '{name}': could not parse project_id from URL")
             continue
@@ -551,6 +579,13 @@ def main(dry_run=False):
         elif file_uris:
             for furi in file_uris:
                 string_uids.extend(get_string_uids_by_file_uri(project_id, furi))
+            if not string_uids and keys:
+                # file URI lookup failed, try key-based lookup as fallback
+                for key in keys:
+                    string_uids.extend(get_string_uids_by_key(project_id, key))
+        elif keys:
+            for key in keys:
+                string_uids.extend(get_string_uids_by_key(project_id, key))
         print(f"[debug] '{name}': {len(string_uids)} string UIDs, in_progress will be checked next")
 
         project_locale_ids = get_project_locale_ids(project_id)
