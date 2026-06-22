@@ -565,17 +565,22 @@ def main(dry_run=False):
 
         if dry_run:
             if job_id:
-                # Get locale list directly from the job
                 try:
-                    job_data = sl_get(f"/jobs-api/v3/projects/{project_id}/jobs/{job_id}")
-                    job_locales = job_data.get("targetLocaleIds", [])
-                    lang_names = sorted({locale_to_lang.get(loc, loc) for loc in job_locales})
-                    if lang_names:
-                        print(f"• {name}\n  → Publish: {', '.join(lang_names)}")
+                    progress = sl_get(f"/jobs-api/v3/projects/{project_id}/jobs/{job_id}/progress")
+                    unpublished_locales = []
+                    for item in progress.get("contentProgressReport", []):
+                        loc = item.get("targetLocaleId", "")
+                        counts = item.get("wordCount", {})
+                        # Any words not yet published
+                        in_progress = sum(v for k, v in counts.items() if k != "published" and isinstance(v, int))
+                        if in_progress > 0:
+                            unpublished_locales.append(locale_to_lang.get(loc, loc))
+                    if unpublished_locales:
+                        print(f"• {name}\n  → Publish: {', '.join(sorted(set(unpublished_locales)))}")
                     else:
-                        print(f"• {name}\n  → Mark as Done (no locales in job)")
+                        print(f"• {name}\n  → Mark as Done (all strings already published)")
                 except Exception as e:
-                    print(f"• {name}\n  → Publish via job (could not fetch locales: {e})")
+                    print(f"• {name}\n  → Publish via job (could not fetch progress: {e})")
             elif string_uids:
                 print(f"• {name}\n  → Publish ({len(string_uids)} strings via tags)")
             else:
