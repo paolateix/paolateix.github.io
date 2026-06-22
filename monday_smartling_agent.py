@@ -170,6 +170,7 @@ def get_subitems_overdue():
       items(ids: [12180635204]) {
         subitems {
           id name
+          board { id }
           column_values { id type text value }
         }
       }
@@ -206,6 +207,7 @@ def get_subitems_overdue():
 
         results.append({
             "subitem_id": sub["id"],
+            "board_id": sub["board"]["id"],
             "subitem_name": sub["name"],
             "parent_name": "Reviewed tasks",
             "cv_map": cv_map,
@@ -242,7 +244,7 @@ def post_monday_comment(subitem_id, language_names):
     monday_query(q, {"item_id": subitem_id, "body": body})
 
 
-def set_task_status_done(subitem_id):
+def set_task_status_done(subitem_id, board_id):
     """Set Task Status column to Done on the subitem."""
     q = """
     mutation($board_id: ID!, $item_id: ID!, $column_id: String!, $value: JSON!) {
@@ -255,7 +257,7 @@ def set_task_status_done(subitem_id):
     }
     """
     monday_query(q, {
-        "board_id": str(BOARD_ID),
+        "board_id": str(board_id),
         "item_id": subitem_id,
         "column_id": TASK_STATUS_COL,
         "value": json.dumps({"label": "Done"}),
@@ -549,7 +551,7 @@ def main(dry_run=False):
             if dry_run:
                 print(f"• {name}\n  → Mark as Done (no languages in progress)")
             else:
-                set_task_status_done(sub["subitem_id"])
+                set_task_status_done(sub["subitem_id"], sub["board_id"])
             continue
 
         if dry_run:
@@ -567,7 +569,7 @@ def main(dry_run=False):
             if published_locales:
                 published_lang_names = [locale_to_lang.get(loc, loc) for loc in published_locales]
                 post_monday_comment(sub["subitem_id"], published_lang_names)
-            set_task_status_done(sub["subitem_id"])
+            set_task_status_done(sub["subitem_id"], sub["board_id"])
 
     print("\nDone.")
 
