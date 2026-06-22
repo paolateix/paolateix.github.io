@@ -368,6 +368,21 @@ def get_string_uids_by_tag(project_id, tag):
     return uids
 
 
+def _resolve_file_uri(project_id, file_uri):
+    """Return the exact Smartling file URI, using prefix search if the exact name has a timestamp suffix."""
+    r = requests.get(
+        f"https://api.smartling.com/files-api/v2/projects/{project_id}/files/list",
+        headers={"Authorization": f"Bearer {smartling_token()}"},
+        params={"uriMask": file_uri + "%", "limit": 10},
+        timeout=30,
+    )
+    r.raise_for_status()
+    items = r.json()["response"]["data"].get("items", [])
+    if items:
+        return items[0]["fileUri"]
+    return file_uri  # fall back to original
+
+
 def get_string_uids_by_file_uri(project_id, file_uri):
     """Return hashcodes for all strings in a project with a matching file URI."""
     cache_key = (project_id, "file:" + file_uri)
@@ -377,12 +392,13 @@ def get_string_uids_by_file_uri(project_id, file_uri):
     if not locales:
         return []
     locale = sorted(locales)[0]
+    exact_uri = _resolve_file_uri(project_id, file_uri)
     uids, offset = [], 0
     while True:
         r = requests.get(
             f"https://api.smartling.com/strings-api/v2/projects/{project_id}/translations",
             headers={"Authorization": f"Bearer {smartling_token()}"},
-            params={"targetLocaleId": locale, "fileUri": file_uri, "limit": 500, "offset": offset},
+            params={"targetLocaleId": locale, "fileUri": exact_uri, "limit": 500, "offset": offset},
             timeout=30,
         )
         r.raise_for_status()
