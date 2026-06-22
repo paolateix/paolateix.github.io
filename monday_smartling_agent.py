@@ -391,14 +391,29 @@ def get_string_uids_by_file_uri(project_id, file_uri):
     locales = get_project_locale_ids(project_id)
     if not locales:
         return []
-    locale = sorted(locales)[0]
     exact_uri = _resolve_file_uri(project_id, file_uri)
+    # Try locales until one returns results (some locales may not have this file)
+    sample_locale = None
+    for loc in sorted(locales):
+        r = requests.get(
+            f"https://api.smartling.com/strings-api/v2/projects/{project_id}/translations",
+            headers={"Authorization": f"Bearer {smartling_token()}"},
+            params={"targetLocaleId": loc, "fileUri": exact_uri, "limit": 1},
+            timeout=30,
+        )
+        r.raise_for_status()
+        if r.json()["response"]["data"].get("totalCount", 0) > 0:
+            sample_locale = loc
+            break
+    if not sample_locale:
+        _tag_uid_cache[cache_key] = []
+        return []
     uids, offset = [], 0
     while True:
         r = requests.get(
             f"https://api.smartling.com/strings-api/v2/projects/{project_id}/translations",
             headers={"Authorization": f"Bearer {smartling_token()}"},
-            params={"targetLocaleId": locale, "fileUri": exact_uri, "limit": 500, "offset": offset},
+            params={"targetLocaleId": sample_locale, "fileUri": exact_uri, "limit": 500, "offset": offset},
             timeout=30,
         )
         r.raise_for_status()
