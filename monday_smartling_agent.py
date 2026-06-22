@@ -595,9 +595,7 @@ def main(dry_run=False):
             if published_locales:
                 published_lang_names = sorted({locale_to_lang.get(loc, loc) for loc in published_locales})
                 post_monday_comment(sub["subitem_id"], published_lang_names)
-                set_task_status_done(sub["subitem_id"], sub["board_id"])
-            else:
-                print(f"[debug] '{name}': nothing published — NOT marking Done")
+            set_task_status_done(sub["subitem_id"], sub["board_id"])
 
     print("\nDone.")
 
