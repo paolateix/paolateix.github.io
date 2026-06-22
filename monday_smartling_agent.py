@@ -575,7 +575,10 @@ def main(dry_run=False):
                         params=params, timeout=30,
                     )
                     if r.ok:
-                        trans_data = r.json()["response"]["data"].get("items", [])
+                        raw = r.json()["response"]["data"]
+                        if loc == sorted(project_locale_ids)[0]:
+                            print(f"[debug] raw response keys: {list(raw.keys())}, first item sample: {str(list(raw.values())[0])[:300] if raw else 'empty'}")
+                        trans_data = raw.get("items", [])
                         if any(t.get("translationState") not in ("PUBLISHED", None) for t in trans_data):
                             publishable_locales.append(locale_to_lang.get(loc, loc))
                 if publishable_locales:
