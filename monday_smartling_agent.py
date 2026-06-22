@@ -436,6 +436,19 @@ def get_project_locale_ids(project_id):
         return set()
 
 
+def publish_job_directly(project_id, job_id, target_locales):
+    """Publish a Smartling job for specific locales. Returns list of locale_ids published."""
+    try:
+        body = {}
+        if target_locales:
+            body["localeWorkflows"] = [{"targetLocaleId": loc} for loc in target_locales]
+        sl_post(f"/jobs-api/v3/projects/{project_id}/jobs/{job_id}/publish", body)
+        return list(target_locales) if target_locales else []
+    except Exception as e:
+        print(f"    Warning: job publish failed: {e}")
+        return []
+
+
 def publish_locales_for_strings(project_id, string_uids, locale_ids):
     """
     For each locale_id, check whether any of the strings are in a publishable
@@ -564,22 +577,23 @@ def main(dry_run=False):
             else:
                 print(f"• {name}\n  → Mark as Done")
         else:
-            print(f"[debug] '{name}': string_uids={len(string_uids)}, target_locales={target_locales}, in_progress={in_progress_langs}")
             published_locales = []
-            if string_uids and target_locales:
-                published_locales = publish_locales_for_strings(project_id, string_uids, target_locales)
+            locales_to_use = target_locales if target_locales else list(project_locale_ids)
+
+            if job_id:
+                # Simplest & most reliable: publish the job directly
+                published_locales = publish_job_directly(project_id, job_id, locales_to_use)
             elif string_uids:
-                published_locales = publish_locales_for_strings(project_id, string_uids, list(project_locale_ids))
+                published_locales = publish_locales_for_strings(project_id, string_uids, locales_to_use)
             else:
-                print(f"[debug] '{name}': skipping publish — no string UIDs found")
+                print(f"[debug] '{name}': no job_id and no string_uids — cannot publish")
 
             if published_locales:
-                published_lang_names = [locale_to_lang.get(loc, loc) for loc in published_locales]
+                published_lang_names = sorted({locale_to_lang.get(loc, loc) for loc in published_locales})
                 post_monday_comment(sub["subitem_id"], published_lang_names)
+                set_task_status_done(sub["subitem_id"], sub["board_id"])
             else:
                 print(f"[debug] '{name}': nothing published — NOT marking Done")
-                continue
-            set_task_status_done(sub["subitem_id"], sub["board_id"])
 
     print("\nDone.")
 
