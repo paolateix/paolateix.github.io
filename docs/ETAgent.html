@@ -268,7 +268,10 @@
             : `<a href="${completed.html_url}" target="_blank">→ View full log</a>`;
           setStatus('success', `🔍 Here's what Run Agent would do:<br>${logHtml}`);
         } else {
-          setStatus('success', `✅ Complete`);
+          const logHtml = log
+            ? `<div class="log-box">${log.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>`
+            : `<a href="${completed.html_url}" target="_blank">→ View full log</a>`;
+          setStatus('success', `✅ Complete<br>${logHtml}`);
         }
 
       } catch (e) {
