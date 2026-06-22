@@ -474,7 +474,7 @@ def publish_locales_for_strings(project_id, string_uids, locale_ids):
                 timeout=30,
             )
             r.raise_for_status()
-            trans_data = r.json()["response"]["data"].get("translationData", [])
+            trans_data = r.json()["response"]["data"].get("items", [])
 
             # Publishable = has a translation that isn't already published
             publishable = [
@@ -575,7 +575,7 @@ def main(dry_run=False):
                         params=params, timeout=30,
                     )
                     if r.ok:
-                        trans_data = r.json()["response"]["data"].get("translationData", [])
+                        trans_data = r.json()["response"]["data"].get("items", [])
                         if any(t.get("translationState") not in ("PUBLISHED", None) for t in trans_data):
                             publishable_locales.append(locale_to_lang.get(loc, loc))
                 if publishable_locales:
