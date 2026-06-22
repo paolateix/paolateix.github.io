@@ -531,7 +531,8 @@ def get_job_hashcodes(project_id, job_id):
 def submit_strings_to_published(project_id, locale_ids, hashcodes):
     """
     Submit strings from Human Review to Published via Smartling GQL.
-    Uses submitStringsByFilter mutation on the strings-view-service.
+    Uses submitStringsByFilter mutation with inline args (no variables) to
+    avoid per-project type-coercion issues in the GQL schema.
     Returns list of locale_ids that were successfully submitted.
     """
     if not locale_ids or not hashcodes:
@@ -542,28 +543,19 @@ def submit_strings_to_published(project_id, locale_ids, hashcodes):
         f"/v2/projects/{project_id}/graphql"
     )
     headers = {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"}
-    gql = (
-        "mutation s($f: [SearchFilter!]!) "
-        "{ submitStringsByFilter(filters: $f) { success operationId } }"
-    )
+
+    def _gql_str_list(items):
+        return "[" + ", ".join(f'"{v}"' for v in items) + "]"
+
     published = []
     for locale_id in locale_ids:
         try:
-            r = requests.post(
-                url,
-                json={
-                    "query": gql,
-                    "operationName": "s",
-                    "variables": {
-                        "filters": [
-                            {"localeIds": [locale_id]},
-                            {"hashcodes": hashcodes},
-                        ]
-                    },
-                },
-                headers=headers,
-                timeout=30,
+            inline_filters = (
+                f'[{{localeIds: {_gql_str_list([locale_id])}}}, '
+                f'{{hashcodes: {_gql_str_list(hashcodes)}}}]'
             )
+            gql = f"mutation {{ submitStringsByFilter(filters: {inline_filters}) {{ success operationId }} }}"
+            r = requests.post(url, json={"query": gql}, headers=headers, timeout=30)
             r.raise_for_status()
             data = r.json().get("data", {}).get("submitStringsByFilter", {})
             if data.get("success"):
