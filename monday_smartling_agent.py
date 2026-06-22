@@ -512,6 +512,42 @@ def publish_job_directly(project_id, job_id, target_locales):
         return []
 
 
+def get_publishable_locales_by_file(project_id, file_uri):
+    """Return locale IDs that have translated (but not yet fully published) strings for a file."""
+    exact_uri = _resolve_file_uri(project_id, file_uri)
+    r = requests.get(
+        f"https://api.smartling.com/files-api/v2/projects/{project_id}/file/status",
+        headers={"Authorization": f"Bearer {smartling_token()}"},
+        params={"fileUri": exact_uri},
+        timeout=30,
+    )
+    r.raise_for_status()
+    result = []
+    for item in r.json()["response"]["data"].get("items", []):
+        authorized = item.get("authorizedStringCount", 0)
+        completed = item.get("completedStringCount", 0)
+        total = item.get("totalStringCount", 0) or (authorized + completed)
+        if authorized > 0 and completed < total:
+            # Has strings in workflow — check if any have real translated content
+            loc = item["localeId"]
+            r2 = requests.get(
+                f"https://api.smartling.com/strings-api/v2/projects/{project_id}/translations",
+                headers={"Authorization": f"Bearer {smartling_token()}"},
+                params={"targetLocaleId": loc, "fileUri": exact_uri, "limit": 20},
+                timeout=30,
+            )
+            if r2.ok:
+                items = r2.json()["response"]["data"].get("items", [])
+                has_real = any(
+                    t.get("translations") and
+                    t["translations"][0].get("translation") not in (None, "", t.get("parsedStringText"))
+                    for t in items
+                )
+                if has_real:
+                    result.append(loc)
+    return result
+
+
 def publish_locales_for_strings(project_id, string_uids, locale_ids, file_uri=None):
     """
     For each locale_id, check whether any of the strings are in a publishable
@@ -661,21 +697,11 @@ def main(dry_run=False):
                 except Exception as e:
                     print(f"• {name}\n  → Publish via job (could not fetch progress: {e})")
             elif string_uids:
-                exact_uri = _resolve_file_uri(project_id, file_uris[0]) if file_uris else None
-                unpublished_locales = []
-                for locale_id in project_locale_ids:
-                    r = requests.get(
-                        f"https://api.smartling.com/strings-api/v2/projects/{project_id}/translations",
-                        headers={"Authorization": f"Bearer {smartling_token()}"},
-                        params={"targetLocaleId": locale_id, "fileUri": exact_uri, "limit": 500},
-                        timeout=30,
-                    )
-                    if not r.ok:
-                        continue
-                    items = r.json()["response"]["data"].get("items", [])
-                    # workflowStepUid != null means string is in an active (unpublished) workflow step
-                    if any(t.get("workflowStepUid") and t.get("translations") for t in items):
-                        unpublished_locales.append(locale_to_lang.get(locale_id, locale_id))
+                if file_uris:
+                    unpub_locale_ids = get_publishable_locales_by_file(project_id, file_uris[0])
+                    unpublished_locales = [locale_to_lang.get(l, l) for l in unpub_locale_ids]
+                else:
+                    unpublished_locales = []
                 if unpublished_locales:
                     print(f"• {name}\n  → Publish: {', '.join(sorted(set(unpublished_locales)))}")
                 else:
@@ -688,7 +714,11 @@ def main(dry_run=False):
             if job_id:
                 published_locales = publish_job_directly(project_id, job_id, list(project_locale_ids))
             elif string_uids:
-                published_locales = publish_locales_for_strings(project_id, string_uids, list(project_locale_ids), file_uri=file_uris[0] if file_uris else None)
+                if file_uris:
+                    locales_to_publish = get_publishable_locales_by_file(project_id, file_uris[0])
+                else:
+                    locales_to_publish = list(project_locale_ids)
+                published_locales = publish_locales_for_strings(project_id, string_uids, locales_to_publish, file_uri=file_uris[0] if file_uris else None)
 
             if published_locales:
                 published_lang_names = sorted({locale_to_lang.get(loc, loc) for loc in published_locales})
