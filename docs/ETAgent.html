@@ -192,11 +192,22 @@
         .split('\n')
         .map(l => l.replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s+/, '').replace(/^\x1b\[[^m]*m/g, ''));
 
-      // Extract only our script's output: from first meaningful line to "Done."
-      const start = lines.findIndex(l => l.startsWith('Dry run') || l.startsWith('Nothing to do') || l.startsWith('•') || l.startsWith('Done.'));
-      if (start === -1) return lines.filter(l => l.trim() && !l.startsWith('##[')).join('\n');
-      const end = lines.findIndex((l, i) => i >= start && l.trim() === 'Done.');
-      return lines.slice(start, end === -1 ? undefined : end + 1).join('\n');
+      // Filter out GitHub Actions noise and [debug] skip lines; keep script output
+      const filtered = lines.filter(l => {
+        const t = l.trim();
+        if (!t) return false;
+        if (t.startsWith('##[')) return false;
+        if (t.startsWith('[debug] skip ')) return false;
+        return true;
+      });
+
+      // For dry runs, trim to the "Dry run …" header through "Done."
+      const dryStart = filtered.findIndex(l => l.startsWith('Dry run') || l.startsWith('Nothing to do'));
+      if (dryStart !== -1) {
+        const dryEnd = filtered.findIndex((l, i) => i >= dryStart && l.trim() === 'Done.');
+        return filtered.slice(dryStart, dryEnd === -1 ? undefined : dryEnd + 1).join('\n');
+      }
+      return filtered.join('\n');
     }
 
     async function runAgent(isDryRun = false) {
