@@ -567,14 +567,19 @@ def main(dry_run=False):
             if job_id:
                 try:
                     progress = sl_get(f"/jobs-api/v3/projects/{project_id}/jobs/{job_id}/progress")
-                    print(f"[debug] progress keys={list(progress.keys())} sample={str(progress)[:400]}")
                     unpublished_locales = []
                     for item in progress.get("contentProgressReport", []):
                         loc = item.get("targetLocaleId", "")
-                        counts = item.get("wordCount", {})
-                        # Any words not yet published
-                        in_progress = sum(v for k, v in counts.items() if k != "published" and isinstance(v, int))
-                        if in_progress > 0:
+                        has_unpublished = False
+                        for workflow in item.get("workflowProgressReportList", []):
+                            for step in workflow.get("workflowStepSummaryReportItemList", []):
+                                step_name = (step.get("workflowStepName") or "").lower()
+                                if "publish" in step_name:
+                                    continue
+                                if any(isinstance(v, (int, float)) and v > 0 for v in step.values()):
+                                    has_unpublished = True
+                                    break
+                        if has_unpublished:
                             unpublished_locales.append(locale_to_lang.get(loc, loc))
                     if unpublished_locales:
                         print(f"• {name}\n  → Publish: {', '.join(sorted(set(unpublished_locales)))}")
