@@ -499,17 +499,41 @@ def get_project_locale_ids(project_id):
         return set()
 
 
+def get_inprogress_locale_ids_for_job(project_id, job_id):
+    """Return locale IDs that have unpublished strings in the job."""
+    progress = sl_get(f"/jobs-api/v3/projects/{project_id}/jobs/{job_id}/progress")
+    result = []
+    for item in progress.get("contentProgressReport", []):
+        loc = item.get("targetLocaleId", "")
+        for workflow in item.get("workflowProgressReportList", []):
+            for step in workflow.get("workflowStepSummaryReportItemList", []):
+                step_name = (step.get("workflowStepName") or "").lower()
+                if "publish" in step_name:
+                    continue
+                if any(isinstance(v, (int, float)) and v > 0 for v in step.values()):
+                    result.append(loc)
+                    break
+    return result
+
+
 def publish_job_directly(project_id, job_id, target_locales):
     """Publish a Smartling job for specific locales. Returns list of locale_ids published."""
-    try:
-        body = {}
-        if target_locales:
-            body["localeWorkflows"] = [{"targetLocaleId": loc} for loc in target_locales]
-        sl_post(f"/jobs-api/v3/projects/{project_id}/jobs/{job_id}/publish", body)
-        return list(target_locales) if target_locales else []
-    except Exception as e:
-        print(f"    Warning: job publish failed: {e}")
+    if not target_locales:
+        print(f"    No in-progress locales found for job {job_id}")
         return []
+    body = {"localeWorkflows": [{"targetLocaleId": loc} for loc in target_locales]}
+    r = requests.post(
+        f"https://api.smartling.com/jobs-api/v3/projects/{project_id}/jobs/{job_id}/publish",
+        headers={"Authorization": f"Bearer {smartling_token()}",
+                 "Content-Type": "application/json"},
+        json=body,
+        timeout=30,
+    )
+    if not r.ok:
+        print(f"    Job publish failed: HTTP {r.status_code} — {r.text[:300]}")
+        return []
+    print(f"    Job published for: {', '.join(target_locales)}")
+    return list(target_locales)
 
 
 def get_publishable_locales_by_file(project_id, file_uri):
@@ -672,53 +696,34 @@ def main(dry_run=False):
                 set_task_status_done(sub["subitem_id"], sub["board_id"])
             continue
 
+        # Determine which locale IDs need publishing
+        if job_id:
+            try:
+                inprogress_locale_ids = get_inprogress_locale_ids_for_job(project_id, job_id)
+            except Exception as e:
+                inprogress_locale_ids = []
+                print(f"[debug] could not fetch job progress: {e}")
+        elif string_uids and file_uris:
+            inprogress_locale_ids = get_publishable_locales_by_file(project_id, file_uris[0])
+        else:
+            inprogress_locale_ids = []
+
+        inprogress_lang_names = sorted({locale_to_lang.get(l, l) for l in inprogress_locale_ids})
+
         if dry_run:
-            if job_id:
-                try:
-                    progress = sl_get(f"/jobs-api/v3/projects/{project_id}/jobs/{job_id}/progress")
-                    unpublished_locales = []
-                    for item in progress.get("contentProgressReport", []):
-                        loc = item.get("targetLocaleId", "")
-                        has_unpublished = False
-                        for workflow in item.get("workflowProgressReportList", []):
-                            for step in workflow.get("workflowStepSummaryReportItemList", []):
-                                step_name = (step.get("workflowStepName") or "").lower()
-                                if "publish" in step_name:
-                                    continue
-                                if any(isinstance(v, (int, float)) and v > 0 for v in step.values()):
-                                    has_unpublished = True
-                                    break
-                        if has_unpublished:
-                            unpublished_locales.append(locale_to_lang.get(loc, loc))
-                    if unpublished_locales:
-                        print(f"• {name}\n  → Publish: {', '.join(sorted(set(unpublished_locales)))}")
-                    else:
-                        print(f"• {name}\n  → Mark as Done (all strings already published)")
-                except Exception as e:
-                    print(f"• {name}\n  → Publish via job (could not fetch progress: {e})")
-            elif string_uids:
-                if file_uris:
-                    unpub_locale_ids = get_publishable_locales_by_file(project_id, file_uris[0])
-                    unpublished_locales = [locale_to_lang.get(l, l) for l in unpub_locale_ids]
-                else:
-                    unpublished_locales = []
-                if unpublished_locales:
-                    print(f"• {name}\n  → Publish: {', '.join(sorted(set(unpublished_locales)))}")
-                else:
-                    print(f"• {name}\n  → Mark as Done (all strings already published)")
+            if inprogress_lang_names:
+                print(f"• {name}\n  → Publish: {', '.join(inprogress_lang_names)}")
             else:
-                print(f"• {name}\n  → Mark as Done (no Smartling strings found)")
+                print(f"• {name}\n  → Mark as Done (all strings already published)")
         else:
             published_locales = []
-
-            if job_id:
-                published_locales = publish_job_directly(project_id, job_id, list(project_locale_ids))
-            elif string_uids:
-                if file_uris:
-                    locales_to_publish = get_publishable_locales_by_file(project_id, file_uris[0])
-                else:
-                    locales_to_publish = list(project_locale_ids)
-                published_locales = publish_locales_for_strings(project_id, string_uids, locales_to_publish, file_uri=file_uris[0] if file_uris else None)
+            if job_id and inprogress_locale_ids:
+                published_locales = publish_job_directly(project_id, job_id, inprogress_locale_ids)
+            elif string_uids and inprogress_locale_ids:
+                published_locales = publish_locales_for_strings(
+                    project_id, string_uids, inprogress_locale_ids,
+                    file_uri=file_uris[0] if file_uris else None
+                )
 
             if published_locales:
                 published_lang_names = sorted({locale_to_lang.get(loc, loc) for loc in published_locales})
