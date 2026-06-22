@@ -464,7 +464,7 @@ def publish_locales_for_strings(project_id, string_uids, locale_ids):
 
     for locale_id in locale_ids:
         try:
-            params = [("localeId", locale_id)]
+            params = [("targetLocaleId", locale_id)]
             for uid in batch:
                 params.append(("hashcodes[]", uid))
             r = requests.get(
@@ -569,7 +569,7 @@ def main(dry_run=False):
                 publishable_locales = []
                 print(f"[debug] checking {len(project_locale_ids)} locales for '{name}'")
                 for loc in sorted(project_locale_ids):
-                    params = [("localeId", loc)] + [("hashcodes[]", u) for u in string_uids[:500]]
+                    params = [("targetLocaleId", loc)] + [("hashcodes[]", u) for u in string_uids[:500]]
                     r = requests.get(
                         f"https://api.smartling.com/strings-api/v2/projects/{project_id}/translations",
                         headers={"Authorization": f"Bearer {smartling_token()}"},
