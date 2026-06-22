@@ -564,33 +564,22 @@ def main(dry_run=False):
             continue
 
         if dry_run:
-            # Show which locales have in-progress strings in Smartling
-            if string_uids:
-                publishable_locales = []
-                print(f"[debug] checking {len(project_locale_ids)} locales for '{name}'")
-                for loc in sorted(project_locale_ids):
-                    params = [("targetLocaleId", loc)] + [("hashcodes[]", u) for u in string_uids[:500]]
-                    r = requests.get(
-                        f"https://api.smartling.com/strings-api/v2/projects/{project_id}/translations",
-                        headers={"Authorization": f"Bearer {smartling_token()}"},
-                        params=params, timeout=30,
-                    )
-                    if r.ok:
-                        raw = r.json()["response"]["data"]
-                        if loc == sorted(project_locale_ids)[0]:
-                            print(f"[debug] raw keys={list(raw.keys())} sample={str(raw)[:400]}")
-                        trans_data = raw.get("items", [])
-                        if any(t.get("translationState") not in ("PUBLISHED", None) for t in trans_data):
-                            publishable_locales.append(locale_to_lang.get(loc, loc))
+            if job_id:
+                # Get locale list directly from the job
+                try:
+                    job_data = sl_get(f"/jobs-api/v3/projects/{project_id}/jobs/{job_id}")
+                    job_locales = job_data.get("targetLocaleIds", [])
+                    lang_names = sorted({locale_to_lang.get(loc, loc) for loc in job_locales})
+                    if lang_names:
+                        print(f"• {name}\n  → Publish: {', '.join(lang_names)}")
                     else:
-                        if loc == sorted(project_locale_ids)[0]:
-                            print(f"[debug] API error {r.status_code}: {r.text[:300]}")
-                if publishable_locales:
-                    print(f"• {name}\n  → Publish: {', '.join(sorted(set(publishable_locales)))}")
-                else:
-                    print(f"• {name}\n  → Mark as Done (all strings already published)")
+                        print(f"• {name}\n  → Mark as Done (no locales in job)")
+                except Exception as e:
+                    print(f"• {name}\n  → Publish via job (could not fetch locales: {e})")
+            elif string_uids:
+                print(f"• {name}\n  → Publish ({len(string_uids)} strings via tags)")
             else:
-                print(f"• {name}\n  → Publish via job (job_id={job_id})")
+                print(f"• {name}\n  → Mark as Done (no Smartling strings found)")
         else:
             published_locales = []
 
