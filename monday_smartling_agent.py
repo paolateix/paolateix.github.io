@@ -547,7 +547,7 @@ def publish_locales_for_strings(project_id, string_uids, locale_ids, file_uri=No
             r.raise_for_status()
             trans_data = r.json()["response"]["data"].get("items", [])
 
-            publishable = [t for t in trans_data if t.get("translationState") not in ("PUBLISHED", None)]
+            publishable = [t for t in trans_data if t.get("workflowStepUid") and t.get("translations")]
             if not publishable:
                 continue
 
@@ -673,7 +673,8 @@ def main(dry_run=False):
                     if not r.ok:
                         continue
                     items = r.json()["response"]["data"].get("items", [])
-                    if any(t.get("translationState") not in ("PUBLISHED", None) for t in items):
+                    # workflowStepUid != null means string is in an active (unpublished) workflow step
+                    if any(t.get("workflowStepUid") and t.get("translations") for t in items):
                         unpublished_locales.append(locale_to_lang.get(locale_id, locale_id))
                 if unpublished_locales:
                     print(f"• {name}\n  → Publish: {', '.join(sorted(set(unpublished_locales)))}")
