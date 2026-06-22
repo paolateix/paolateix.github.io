@@ -392,6 +392,7 @@ def get_string_uids_by_file_uri(project_id, file_uri):
     if not locales:
         return []
     exact_uri = _resolve_file_uri(project_id, file_uri)
+    print(f"[debug] file_uri lookup: resolved '{file_uri}' -> '{exact_uri}' in project {project_id}")
     # Try locales until one returns results (some locales may not have this file)
     sample_locale = None
     for loc in sorted(locales):
@@ -402,10 +403,13 @@ def get_string_uids_by_file_uri(project_id, file_uri):
             timeout=30,
         )
         r.raise_for_status()
-        if r.json()["response"]["data"].get("totalCount", 0) > 0:
+        count = r.json()["response"]["data"].get("totalCount") or 0
+        if count > 0:
             sample_locale = loc
+            print(f"[debug] file_uri lookup: found {count} strings in locale {loc}")
             break
     if not sample_locale:
+        print(f"[debug] file_uri lookup: no strings found in any locale for '{exact_uri}'")
         _tag_uid_cache[cache_key] = []
         return []
     uids, offset = [], 0
@@ -654,7 +658,29 @@ def main(dry_run=False):
                 except Exception as e:
                     print(f"• {name}\n  → Publish via job (could not fetch progress: {e})")
             elif string_uids:
-                print(f"• {name}\n  → Publish ({len(string_uids)} strings via tags)")
+                batch = string_uids[:500]
+                unpublished_locales = []
+                for locale_id in project_locale_ids:
+                    try:
+                        params = [("targetLocaleId", locale_id)]
+                        for uid in batch:
+                            params.append(("hashcodes[]", uid))
+                        r = requests.get(
+                            f"https://api.smartling.com/strings-api/v2/projects/{project_id}/translations",
+                            headers={"Authorization": f"Bearer {smartling_token()}"},
+                            params=params,
+                            timeout=30,
+                        )
+                        r.raise_for_status()
+                        items = r.json()["response"]["data"].get("items", [])
+                        if any(t.get("translationState") not in ("PUBLISHED", None) for t in items):
+                            unpublished_locales.append(locale_to_lang.get(locale_id, locale_id))
+                    except Exception:
+                        pass
+                if unpublished_locales:
+                    print(f"• {name}\n  → Publish: {', '.join(sorted(set(unpublished_locales)))}")
+                else:
+                    print(f"• {name}\n  → Mark as Done (all strings already published)")
             else:
                 print(f"• {name}\n  → Mark as Done (no Smartling strings found)")
         else:
