@@ -567,6 +567,7 @@ def main(dry_run=False):
             if job_id:
                 try:
                     progress = sl_get(f"/jobs-api/v3/projects/{project_id}/jobs/{job_id}/progress")
+                    print(f"[debug] progress keys={list(progress.keys())} sample={str(progress)[:400]}")
                     unpublished_locales = []
                     for item in progress.get("contentProgressReport", []):
                         loc = item.get("targetLocaleId", "")
