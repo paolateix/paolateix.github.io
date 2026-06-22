@@ -373,7 +373,7 @@ def _resolve_file_uri(project_id, file_uri):
     r = requests.get(
         f"https://api.smartling.com/files-api/v2/projects/{project_id}/files/list",
         headers={"Authorization": f"Bearer {smartling_token()}"},
-        params={"uriMask": file_uri + "%", "limit": 10},
+        params={"uriMask": file_uri, "limit": 10},
         timeout=30,
     )
     r.raise_for_status()
