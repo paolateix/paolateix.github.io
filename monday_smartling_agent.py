@@ -162,6 +162,7 @@ def get_subitems_overdue():
     Much faster than scanning the whole subitems board.
     """
     today = date.today()
+    tomorrow = today + timedelta(days=1)
     results = []
 
     q = """
@@ -192,8 +193,8 @@ def get_subitems_overdue():
         except ValueError:
             print(f"[debug] skip '{sub['name']}': bad ETA '{eta_text}'")
             continue
-        if eta_date > today:
-            print(f"[debug] skip '{sub['name']}': ETA {eta_text} not overdue")
+        if eta_date != tomorrow:
+            print(f"[debug] skip '{sub['name']}': ETA {eta_text} (want {tomorrow})")
             continue
 
         # Filter out already Done
