@@ -516,24 +516,64 @@ def get_inprogress_locale_ids_for_job(project_id, job_id):
     return result
 
 
-def publish_job_directly(project_id, job_id, target_locales):
-    """Publish a Smartling job for specific locales. Returns list of locale_ids published."""
-    if not target_locales:
-        print(f"    No in-progress locales found for job {job_id}")
-        return []
-    body = {"localeWorkflows": [{"targetLocaleId": loc} for loc in target_locales]}
-    r = requests.post(
-        f"https://api.smartling.com/jobs-api/v3/projects/{project_id}/jobs/{job_id}/publish",
-        headers={"Authorization": f"Bearer {smartling_token()}",
-                 "Content-Type": "application/json"},
-        json=body,
+def get_job_hashcodes(project_id, job_id):
+    """Return unique string hashcodes for all strings in a job."""
+    r = requests.get(
+        f"https://api.smartling.com/jobs-api/v3/projects/{project_id}/jobs/{job_id}/strings",
+        headers={"Authorization": f"Bearer {smartling_token()}"},
         timeout=30,
     )
-    if not r.ok:
-        print(f"    Job publish failed: HTTP {r.status_code} — {r.text[:300]}")
+    r.raise_for_status()
+    items = r.json()["response"]["data"].get("items", [])
+    return list(set(item["hashcode"] for item in items if item.get("hashcode")))
+
+
+def submit_strings_to_published(project_id, locale_ids, hashcodes):
+    """
+    Submit strings from Human Review to Published via Smartling GQL.
+    Uses submitStringsByFilter mutation on the strings-view-service.
+    Returns list of locale_ids that were successfully submitted.
+    """
+    if not locale_ids or not hashcodes:
         return []
-    print(f"    Job published for: {', '.join(target_locales)}")
-    return list(target_locales)
+    tok = smartling_token()
+    url = (
+        f"https://dashboard.smartling.com/p/strings-view-service-graphql-api"
+        f"/v2/projects/{project_id}/graphql"
+    )
+    headers = {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"}
+    gql = (
+        "mutation s($f: [SearchFilter!]!) "
+        "{ submitStringsByFilter(filters: $f) { success operationId } }"
+    )
+    published = []
+    for locale_id in locale_ids:
+        try:
+            r = requests.post(
+                url,
+                json={
+                    "query": gql,
+                    "operationName": "s",
+                    "variables": {
+                        "filters": [
+                            {"localeIds": [locale_id]},
+                            {"hashcodes": hashcodes},
+                        ]
+                    },
+                },
+                headers=headers,
+                timeout=30,
+            )
+            r.raise_for_status()
+            data = r.json().get("data", {}).get("submitStringsByFilter", {})
+            if data.get("success"):
+                published.append(locale_id)
+            else:
+                errs = r.json().get("errors")
+                print(f"    {locale_id}: submit failed — {errs}")
+        except Exception as e:
+            print(f"    {locale_id}: submit error — {e}")
+    return published
 
 
 def get_publishable_locales_by_file(project_id, file_uri):
@@ -574,54 +614,10 @@ def get_publishable_locales_by_file(project_id, file_uri):
 
 def publish_locales_for_strings(project_id, string_uids, locale_ids, file_uri=None):
     """
-    For each locale_id, check whether any of the strings are in a publishable
-    state (translation exists but not yet PUBLISHED). Publish those that are.
-    Returns list of locale_ids that were actually published.
+    Publish in-progress translations for non-job tasks (DEALER/EMAIL).
+    string_uids are the hashcodes to submit. Returns locale_ids that were published.
     """
-    if not string_uids:
-        return []
-
-    published = []
-    exact_uri = _resolve_file_uri(project_id, file_uri) if file_uri else None
-
-    for locale_id in locale_ids:
-        try:
-            if exact_uri:
-                r = requests.get(
-                    f"https://api.smartling.com/strings-api/v2/projects/{project_id}/translations",
-                    headers={"Authorization": f"Bearer {smartling_token()}"},
-                    params={"targetLocaleId": locale_id, "fileUri": exact_uri, "limit": 500},
-                    timeout=30,
-                )
-            else:
-                # fallback: hashcodes[] (works for some project types)
-                params = [("targetLocaleId", locale_id)]
-                for uid in string_uids[:500]:
-                    params.append(("hashcodes[]", uid))
-                r = requests.get(
-                    f"https://api.smartling.com/strings-api/v2/projects/{project_id}/translations",
-                    headers={"Authorization": f"Bearer {smartling_token()}"},
-                    params=params,
-                    timeout=30,
-                )
-            r.raise_for_status()
-            trans_data = r.json()["response"]["data"].get("items", [])
-
-            publishable = [t for t in trans_data if t.get("workflowStepUid") and t.get("translations")]
-            if not publishable:
-                continue
-
-            sl_post(
-                f"/strings-api/v2/projects/{project_id}/translations/publish",
-                {"stringUids": string_uids[:500], "localeIds": [locale_id]},
-            )
-            print(f"    {locale_id}: published {len(publishable)} translation(s)")
-            published.append(locale_id)
-
-        except Exception as e:
-            print(f"    {locale_id}: error — {e}")
-
-    return published
+    return submit_strings_to_published(project_id, locale_ids, string_uids)
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -718,7 +714,14 @@ def main(dry_run=False):
         else:
             published_locales = []
             if job_id and inprogress_locale_ids:
-                published_locales = publish_job_directly(project_id, job_id, inprogress_locale_ids)
+                try:
+                    job_hashcodes = get_job_hashcodes(project_id, job_id)
+                except Exception as e:
+                    job_hashcodes = []
+                    print(f"    Could not fetch job hashcodes: {e}")
+                published_locales = submit_strings_to_published(
+                    project_id, inprogress_locale_ids, job_hashcodes
+                )
             elif string_uids and inprogress_locale_ids:
                 published_locales = publish_locales_for_strings(
                     project_id, string_uids, inprogress_locale_ids,
