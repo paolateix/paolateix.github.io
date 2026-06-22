@@ -660,6 +660,7 @@ def main(dry_run=False):
             elif string_uids:
                 batch = string_uids[:500]
                 unpublished_locales = []
+                _logged_sample = False
                 for locale_id in project_locale_ids:
                     try:
                         params = [("targetLocaleId", locale_id)]
@@ -671,12 +672,18 @@ def main(dry_run=False):
                             params=params,
                             timeout=30,
                         )
-                        r.raise_for_status()
+                        if not r.ok:
+                            print(f"[debug] hashcodes check {locale_id}: HTTP {r.status_code} {r.text[:200]}")
+                            continue
                         items = r.json()["response"]["data"].get("items", [])
+                        if not _logged_sample and items:
+                            print(f"[debug] sample translationState values: {[t.get('translationState') for t in items[:3]]}")
+                            _logged_sample = True
                         if any(t.get("translationState") not in ("PUBLISHED", None) for t in items):
                             unpublished_locales.append(locale_to_lang.get(locale_id, locale_id))
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"[debug] hashcodes check {locale_id}: exception {e}")
+                        break
                 if unpublished_locales:
                     print(f"• {name}\n  → Publish: {', '.join(sorted(set(unpublished_locales)))}")
                 else:
