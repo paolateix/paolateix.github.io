@@ -567,6 +567,7 @@ def main(dry_run=False):
             # Show which locales have in-progress strings in Smartling
             if string_uids:
                 publishable_locales = []
+                print(f"[debug] checking {len(project_locale_ids)} locales for '{name}'")
                 for loc in sorted(project_locale_ids):
                     params = [("localeId", loc)] + [("hashcodes[]", u) for u in string_uids[:500]]
                     r = requests.get(
