@@ -519,10 +519,13 @@ def main(dry_run=False):
             task_link_url = tl_cv.get("text") or ""
 
         if "dashboard.smartling.com" not in task_link_url:
+            print(f"[debug] skip '{name}': no Smartling URL")
             continue  # no Smartling link — skip silently
 
         project_id, job_id, tags, keys, file_uris = parse_smartling_url(task_link_url)
+        print(f"[debug] '{name}': project={project_id} job={job_id} tags={tags} file_uris={file_uris}")
         if not project_id:
+            print(f"[debug] skip '{name}': could not parse project_id from URL")
             continue
 
         # Resolve string UIDs
@@ -535,6 +538,7 @@ def main(dry_run=False):
         elif file_uris:
             for furi in file_uris:
                 string_uids.extend(get_string_uids_by_file_uri(project_id, furi))
+        print(f"[debug] '{name}': {len(string_uids)} string UIDs, in_progress will be checked next")
 
         # Determine target locales from Monday in-progress language columns
         in_progress_langs = get_in_progress_languages(sub["cv_map"])
@@ -560,15 +564,21 @@ def main(dry_run=False):
             else:
                 print(f"• {name}\n  → Mark as Done")
         else:
+            print(f"[debug] '{name}': string_uids={len(string_uids)}, target_locales={target_locales}, in_progress={in_progress_langs}")
             published_locales = []
             if string_uids and target_locales:
                 published_locales = publish_locales_for_strings(project_id, string_uids, target_locales)
             elif string_uids:
                 published_locales = publish_locales_for_strings(project_id, string_uids, list(project_locale_ids))
+            else:
+                print(f"[debug] '{name}': skipping publish — no string UIDs found")
 
             if published_locales:
                 published_lang_names = [locale_to_lang.get(loc, loc) for loc in published_locales]
                 post_monday_comment(sub["subitem_id"], published_lang_names)
+            else:
+                print(f"[debug] '{name}': nothing published — NOT marking Done")
+                continue
             set_task_status_done(sub["subitem_id"], sub["board_id"])
 
     print("\nDone.")
