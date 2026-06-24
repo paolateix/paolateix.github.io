@@ -1,6 +1,8 @@
 name: Monday + Smartling Agent
 
 on:
+  schedule:
+    - cron: '0 6 * * *'  # 9AM Israel time (UTC+3)
   workflow_dispatch:
     inputs:
       dry_run:
