@@ -228,20 +228,41 @@ def get_in_progress_languages(cv_map):
 
 
 def post_monday_comment(subitem_id, language_names):
-    """Create an update on the subitem mentioning Sanne Heijmans."""
+    """Create an update on the subitem and notify Sanne Heijmans."""
     lang_list = ", ".join(language_names)
     body = (
-        f'I published the languages {lang_list} that were due. '
-        f'<p><a href="https://wix.monday.com/users/{SANNE_USER_ID}" '
+        f'I published the following languages: {lang_list}. '
+        f'<a href="https://wix.monday.com/users/{SANNE_USER_ID}" '
         f'data-mention-id="{SANNE_USER_ID}" data-mention-type="user" '
-        f'class="mention">@Sanne Heijmans</a></p>'
+        f'class="mention">@Sanne Heijmans</a>'
     )
     q = """
     mutation($item_id: ID!, $body: String!) {
       create_update(item_id: $item_id, body: $body) { id }
     }
     """
-    monday_query(q, {"item_id": subitem_id, "body": body})
+    result = monday_query(q, {"item_id": subitem_id, "body": body})
+    update_id = result.get("create_update", {}).get("id")
+    if update_id:
+        # Send explicit notification so Sanne receives the bell alert
+        _send_notification(str(SANNE_USER_ID), str(update_id),
+                           f"Languages published: {lang_list}", "Post")
+
+
+def _send_notification(user_id, target_id, text, target_type):
+    """Send a Monday notification via the notifications API."""
+    q = """
+    mutation($user_id: ID!, $target_id: ID!, $text: String!, $target_type: NotificationTargetType!) {
+      create_notification(user_id: $user_id, target_id: $target_id, text: $text, target_type: $target_type) {
+        text
+      }
+    }
+    """
+    try:
+        monday_query(q, {"user_id": user_id, "target_id": target_id,
+                         "text": text, "target_type": target_type})
+    except Exception as e:
+        print(f"    Warning: could not send notification to Sanne: {e}")
 
 
 def set_task_status_done(subitem_id, board_id):
