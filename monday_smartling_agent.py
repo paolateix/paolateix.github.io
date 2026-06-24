@@ -29,6 +29,7 @@ YESTERDAY = (
     else (_today - timedelta(days=1))
 ).strftime("%Y-%m-%d")
 SANNE_USER_ID = 217591
+SANNE_SLACK_ID = "UGGPA6LS0"
 
 # Subitem column IDs
 TASK_STATUS_COL = "color_mkyf691e"
@@ -635,8 +636,45 @@ def publish_locales_for_strings(project_id, string_uids, locale_ids, file_uri=No
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
+def send_slack_report(rows):
+    """Send a published-languages report to Sanne on Slack."""
+    today = date.today().strftime("%Y-%m-%d")
+    lines = [
+        "**ETAgent — Languages Published Report**",
+        "",
+        "| Monday Task | Languages Published | Date |",
+        "|---|---|---|",
+    ]
+    for name, subitem_id, langs in rows:
+        link = f"https://wix.monday.com/boards/9991673115/pulses/{subitem_id}"
+        lang_str = ", ".join(langs)
+        lines.append(f"| [{name}]({link}) | {lang_str} | {today} |")
+    message = "\n".join(lines)
+
+    env = load_env()
+    slack_token = env.get("SLACK_BOT_TOKEN", "")
+    if not slack_token:
+        print("    No SLACK_BOT_TOKEN in .env — skipping Slack report")
+        return
+    try:
+        r = requests.post(
+            "https://slack.com/api/chat.postMessage",
+            json={"channel": SANNE_SLACK_ID, "text": message, "mrkdwn": True},
+            headers={"Authorization": f"Bearer {slack_token}", "Content-Type": "application/json"},
+            timeout=15,
+        )
+        resp = r.json()
+        if resp.get("ok"):
+            print(f"    Slack report sent to Sanne")
+        else:
+            print(f"    Slack report failed: {resp.get('error')}")
+    except Exception as e:
+        print(f"    Slack report error: {e}")
+
+
 def main(dry_run=False):
     subitems = get_subitems_overdue()
+    report_rows = []
 
     if not subitems:
         print("Nothing to do.")
@@ -744,7 +782,11 @@ def main(dry_run=False):
             if published_locales:
                 published_lang_names = sorted({locale_to_lang.get(loc, loc) for loc in published_locales})
                 post_monday_comment(sub["subitem_id"], published_lang_names)
+                report_rows.append((name, sub["subitem_id"], published_lang_names))
             set_task_status_done(sub["subitem_id"], sub["board_id"])
+
+    if not dry_run and report_rows:
+        send_slack_report(report_rows)
 
     print("\nDone.")
 

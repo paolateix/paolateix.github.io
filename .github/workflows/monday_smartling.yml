@@ -37,6 +37,7 @@ jobs:
           echo "SMARTLING_USER_ID=${{ secrets.SMARTLING_USER_ID }}" >> .env
           echo "SMARTLING_USER_SECRET=${{ secrets.SMARTLING_USER_SECRET }}" >> .env
           echo "MONDAY_API_TOKEN=${{ secrets.MONDAY_API_TOKEN }}" >> .env
+          echo "SLACK_BOT_TOKEN=${{ secrets.SLACK_BOT_TOKEN }}" >> .env
 
       - name: Run agent
         run: |
