@@ -675,13 +675,14 @@ def send_slack_report(rows):
 def main(dry_run=False):
     subitems = get_subitems_overdue()
     report_rows = []
+    dry_run_actions = []  # track tasks that would be published in dry run
 
     if not subitems:
         print("Nothing to do.")
         return
 
     if dry_run:
-        print(f"Dry run — {len(subitems)} overdue task(s) found:\n")
+        print(f"Dry run — {len(subitems)} overdue task(s) found, checking what needs publishing:\n")
 
     smartling_token()  # authenticate early
 
@@ -759,6 +760,7 @@ def main(dry_run=False):
 
         if dry_run:
             if inprogress_lang_names:
+                dry_run_actions.append(name)
                 print(f"• {name}\n  → Publish: {', '.join(inprogress_lang_names)}")
             else:
                 print(f"• {name}\n  → Mark as Done (all strings already published)")
@@ -785,7 +787,10 @@ def main(dry_run=False):
                 report_rows.append((name, sub["subitem_id"], published_lang_names))
             set_task_status_done(sub["subitem_id"], sub["board_id"])
 
-    if not dry_run and report_rows:
+    if dry_run:
+        if not dry_run_actions:
+            print("\nNo action needed — all tasks are already up to date.")
+    elif report_rows:
         send_slack_report(report_rows)
 
     print("\nDone.")
