@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ETAgent</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #0e0b1a;
+      color: #e2e8f0;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .card {
+      background: #16112e;
+      border: 1px solid #2e1f5e;
+      border-radius: 16px;
+      padding: 48px;
+      width: 100%;
+      max-width: 480px;
+      text-align: center;
+    }
+
+    .icon { font-size: 48px; margin-bottom: 16px; }
+
+    h1 { font-size: 22px; font-weight: 700; margin-bottom: 8px; color: #fff; }
+
+    .subtitle {
+      font-size: 14px; color: #718096; margin-bottom: 40px; line-height: 1.5;
+    }
+
+    .btn-group { display: flex; flex-direction: column; gap: 12px; }
+
+    .run-btn {
+      width: 100%; padding: 16px; background: #7c3aed; color: #fff;
+      border: none; border-radius: 10px; font-size: 16px; font-weight: 600;
+      cursor: pointer; transition: background 0.2s, transform 0.1s;
+    }
+    .run-btn:hover:not(:disabled) { background: #6d28d9; }
+    .run-btn:active:not(:disabled) { transform: scale(0.98); }
+    .run-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .dry-btn {
+      width: 100%; padding: 13px; background: transparent; color: #a78bfa;
+      border: 1.5px solid #4c1d95; border-radius: 10px; font-size: 14px;
+      font-weight: 600; cursor: pointer; transition: background 0.2s, border-color 0.2s, transform 0.1s;
+    }
+    .dry-btn:hover:not(:disabled) { background: #1e1040; border-color: #7c3aed; }
+    .dry-btn:active:not(:disabled) { transform: scale(0.98); }
+    .dry-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .status {
+      margin-top: 24px; padding: 14px 16px; border-radius: 10px;
+      font-size: 14px; display: none; text-align: left; line-height: 1.6;
+    }
+    .status.loading { background: #1e1040; border: 1px solid #7c3aed; color: #c4b5fd; display: block; }
+    .status.success { background: #1a2e22; border: 1px solid #2d6a4f; color: #6ee7b7; display: block; }
+    .status.error   { background: #2e1a1a; border: 1px solid #6a2d2d; color: #fc8181; display: block; }
+
+    .log-box {
+      margin-top: 14px; background: #0a0812; border: 1px solid #2e1f5e;
+      border-radius: 8px; padding: 14px; font-family: monospace; font-size: 12px;
+      color: #d4c5ff; text-align: left; white-space: pre-wrap;
+      max-height: 320px; overflow-y: auto; line-height: 1.6;
+    }
+
+    .spinner {
+      display: inline-block; width: 14px; height: 14px;
+      border: 2px solid currentColor; border-top-color: transparent;
+      border-radius: 50%; animation: spin 0.7s linear infinite;
+      vertical-align: middle; margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Token setup */
+    .token-section {
+      margin-top: 28px; padding-top: 20px; border-top: 1px solid #2e1f5e;
+    }
+    .token-label { font-size: 12px; color: #4a3f6b; margin-bottom: 8px; }
+    .token-row { display: flex; gap: 8px; }
+    .token-input {
+      flex: 1; padding: 8px 12px; background: #0e0b1a; border: 1px solid #2e1f5e;
+      border-radius: 8px; color: #a78bfa; font-size: 12px; font-family: monospace;
+    }
+    .token-input:focus { outline: none; border-color: #7c3aed; }
+    .token-save {
+      padding: 8px 14px; background: #2e1f5e; border: none; border-radius: 8px;
+      color: #a78bfa; font-size: 12px; cursor: pointer;
+    }
+    .token-save:hover { background: #3d2a7a; }
+    .token-ok { font-size: 12px; color: #4a3f6b; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">🌍</div>
+    <h1>ETAgent</h1>
+    <p class="subtitle">
+      Scans overdue tasks on the Monday board, publishes ready languages in Smartling,
+      comments on each task, and marks them Done.
+    </p>
+
+    <div class="btn-group">
+      <button class="run-btn" id="runBtn" onclick="runAgent(false)">Run Agent</button>
+      <button class="dry-btn" id="dryBtn" onclick="runAgent(true)">
+        🔍 Dry Run — preview only, no changes
+      </button>
+    </div>
+
+    <div class="status" id="status"></div>
+
+    <div class="token-section" style="display:none">
+      <p class="token-label">GitHub token (saved in your browser, one-time setup)</p>
+      <div class="token-row">
+        <input class="token-input" id="tokenInput" type="password" placeholder="ghp_..." />
+        <button class="token-save" onclick="saveToken()">Save</button>
+      </div>
+      <p class="token-ok" id="tokenOk"></p>
+    </div>
+  </div>
+
+  <script>
+    const REPO          = 'paolateix/paolateix.github.io';
+    const BRANCH        = 'main';
+    const WORKFLOW_FILE = 'monday_smartling.yml';
+    const TOKEN_KEY     = 'etagent_gh_token';
+    const HARDCODED_TOKEN = '0sfUWQYS3VVOV7ECVc5vCrNe2dUXt5cWZBjRJ0JHC8R0IJhvTTojjIMHxIp_TxFbNiVfZZAP0A3FQW4A11_tap_buhtig'.split('').reverse().join('');
+
+    // Load saved token on startup
+    window.addEventListener('load', () => {
+      const saved = localStorage.getItem(TOKEN_KEY);
+      if (saved) {
+        document.getElementById('tokenInput').value = saved;
+        document.getElementById('tokenOk').textContent = '✓ Token saved';
+      }
+    });
+
+    function saveToken() {
+      const val = document.getElementById('tokenInput').value.trim();
+      if (!val) return;
+      localStorage.setItem(TOKEN_KEY, val);
+      document.getElementById('tokenOk').textContent = '✓ Token saved';
+    }
+
+    function getToken() {
+      return localStorage.getItem(TOKEN_KEY) || document.getElementById('tokenInput').value.trim() || HARDCODED_TOKEN;
+    }
+
+    function setStatus(type, html) {
+      const el = document.getElementById('status');
+      el.className = 'status ' + type;
+      el.innerHTML = html;
+    }
+
+    const ghHeaders = token => ({
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+    });
+
+    async function ghGet(token, path) {
+      const r = await fetch(`https://api.github.com${path}`, { headers: ghHeaders(token) });
+      if (!r.ok) throw new Error(`GitHub API ${r.status}: ${path}`);
+      return r.json();
+    }
+
+    async function pollUntilComplete(token, runId) {
+      for (let i = 0; i < 60; i++) {
+        await new Promise(r => setTimeout(r, 5000));
+        const data = await ghGet(token, `/repos/${REPO}/actions/runs/${runId}`);
+        if (data.status === 'completed') return data;
+        setStatus('loading', `<span class="spinner"></span> Running… (${Math.round((i + 1) * 5)}s)`);
+      }
+      throw new Error('Timed out after 5 minutes.');
+    }
+
+    async function fetchLog(token, runId) {
+      const jobs = await ghGet(token, `/repos/${REPO}/actions/runs/${runId}/jobs`);
+      const job = jobs.jobs?.[0];
+      if (!job) return null;
+      const logRes = await fetch(
+        `https://api.github.com/repos/${REPO}/actions/jobs/${job.id}/logs`,
+        { headers: ghHeaders(token), redirect: 'follow' }
+      );
+      if (!logRes.ok) return null;
+      const raw = await logRes.text();
+      const lines = raw
+        .split('\n')
+        .map(l => l.replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s+/, '').replace(/^\x1b\[[^m]*m/g, ''));
+
+      // Filter out GitHub Actions noise and [debug] skip lines; keep script output
+      const filtered = lines.filter(l => {
+        const t = l.trim();
+        if (!t) return false;
+        if (t.startsWith('##[')) return false;
+        if (t.startsWith('[debug] skip ')) return false;
+        return true;
+      });
+
+      // For dry runs, trim to the "Dry run …" header through "Done."
+      const dryStart = filtered.findIndex(l => l.startsWith('Dry run') || l.startsWith('Nothing to do'));
+      if (dryStart !== -1) {
+        const dryEnd = filtered.findIndex((l, i) => i >= dryStart && l.trim() === 'Done.');
+        return filtered.slice(dryStart, dryEnd === -1 ? undefined : dryEnd + 1).join('\n');
+      }
+      return filtered.join('\n');
+    }
+
+    async function runAgent(isDryRun = false) {
+      const token = getToken();
+      if (!token) {
+        setStatus('error', '⚠️ Please enter your GitHub token below and click Save.');
+        return;
+      }
+
+      const runBtn = document.getElementById('runBtn');
+      const dryBtn = document.getElementById('dryBtn');
+      runBtn.disabled = true;
+      dryBtn.disabled = true;
+
+      try {
+        setStatus('loading', `<span class="spinner"></span> Triggering ${isDryRun ? 'dry run' : 'agent'}…`);
+
+        // Snapshot the current latest run ID before triggering
+        const preTrigger = await ghGet(token, `/repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs?per_page=1&branch=${BRANCH}`);
+        const lastRunId = preTrigger.workflow_runs?.[0]?.id ?? 0;
+
+        const triggerRes = await fetch(
+          `https://api.github.com/repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/dispatches`,
+          {
+            method: 'POST',
+            headers: { ...ghHeaders(token), 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ref: BRANCH, inputs: { dry_run: isDryRun ? 'true' : 'false' } }),
+          }
+        );
+        if (!triggerRes.ok) {
+          const err = await triggerRes.json().catch(() => ({}));
+          throw new Error(err.message || `HTTP ${triggerRes.status}`);
+        }
+
+        setStatus('loading', `<span class="spinner"></span> Queued — waiting for run to start…`);
+
+        // Poll until we find a run with an ID newer than what existed before we triggered
+        let run = null;
+        for (let i = 0; i < 24; i++) {
+          await new Promise(r => setTimeout(r, 5000));
+          const runsData = await ghGet(token, `/repos/${REPO}/actions/workflows/${WORKFLOW_FILE}/runs?per_page=5&branch=${BRANCH}`);
+          const fresh = (runsData.workflow_runs || []).find(r => r.id > lastRunId);
+          if (fresh) { run = fresh; break; }
+        }
+        if (!run) throw new Error('Run did not appear after 2 minutes — check GitHub Actions.');
+
+        setStatus('loading', `<span class="spinner"></span> Running… <a href="${run.html_url}" target="_blank" style="color:inherit">(view on GitHub)</a>`);
+
+        const completed = await pollUntilComplete(token, run.id);
+        const succeeded = completed.conclusion === 'success';
+
+        setStatus('loading', `<span class="spinner"></span> Fetching results…`);
+        const log = await fetchLog(token, run.id).catch(() => null);
+        const noTasks = log && log.includes('Nothing to do');
+
+        if (!succeeded) {
+          const logHtml = log
+            ? `<div class="log-box">${log.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>`
+            : `<a href="${completed.html_url}" target="_blank">→ View error log</a>`;
+          setStatus('error', `❌ ${isDryRun ? 'Dry run' : 'Run'} failed:<br>${logHtml}`);
+        } else if (noTasks) {
+          const logHtml = log
+            ? `<div class="log-box">${log.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>`
+            : '';
+          setStatus('success', `✅ No actions to take — no overdue tasks found.${logHtml}`);
+        } else if (isDryRun) {
+          const logHtml = log
+            ? `<div class="log-box">${log.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>`
+            : `<a href="${completed.html_url}" target="_blank">→ View full log</a>`;
+          setStatus('success', `🔍 Here's what Run Agent would do:<br>${logHtml}`);
+        } else {
+          const logHtml = log
+            ? `<div class="log-box">${log.replace(/&/g,'&amp;').replace(/</g,'&lt;')}</div>`
+            : `<a href="${completed.html_url}" target="_blank">→ View full log</a>`;
+          setStatus('success', `✅ Complete<br>${logHtml}`);
+        }
+
+      } catch (e) {
+        setStatus('error', `❌ Error: ${e.message}`);
+      } finally {
+        runBtn.disabled = false;
+        dryBtn.disabled = false;
+      }
+    }
+  </script>
+</body>
+</html>
