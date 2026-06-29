@@ -115,7 +115,7 @@
 
     <div class="status" id="status"></div>
 
-    <div class="token-section">
+    <div class="token-section" style="display:none">
       <p class="token-label">GitHub token (saved in your browser, one-time setup)</p>
       <div class="token-row">
         <input class="token-input" id="tokenInput" type="password" placeholder="ghp_..." />
@@ -130,6 +130,7 @@
     const BRANCH        = 'main';
     const WORKFLOW_FILE = 'monday_smartling.yml';
     const TOKEN_KEY     = 'etagent_gh_token';
+    const HARDCODED_TOKEN = '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';
 
     // Load saved token on startup
     window.addEventListener('load', () => {
@@ -148,7 +149,7 @@
     }
 
     function getToken() {
-      return localStorage.getItem(TOKEN_KEY) || document.getElementById('tokenInput').value.trim();
+      return localStorage.getItem(TOKEN_KEY) || document.getElementById('tokenInput').value.trim() || HARDCODED_TOKEN;
     }
 
     function setStatus(type, html) {
