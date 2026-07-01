@@ -30,6 +30,7 @@ YESTERDAY = (
 ).strftime("%Y-%m-%d")
 SANNE_USER_ID = 217591
 SANNE_SLACK_ID = "UGGPA6LS0"
+YURI_SLACK_ID = "U01EATB21GW"
 
 # Subitem column IDs
 TASK_STATUS_COL = "color_mkyf691e"
@@ -637,7 +638,7 @@ def publish_locales_for_strings(project_id, string_uids, locale_ids, file_uri=No
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def send_slack_report(rows):
-    """Send a published-languages report to Sanne on Slack."""
+    """Send a published-languages report to Sanne and Yuri on Slack."""
     today = date.today().strftime("%Y-%m-%d")
     lines = [
         "**ETAgent — Languages Published Report**",
@@ -656,20 +657,22 @@ def send_slack_report(rows):
     if not slack_token:
         print("    No SLACK_BOT_TOKEN in .env — skipping Slack report")
         return
-    try:
-        r = requests.post(
-            "https://slack.com/api/chat.postMessage",
-            json={"channel": SANNE_SLACK_ID, "text": message, "mrkdwn": True},
-            headers={"Authorization": f"Bearer {slack_token}", "Content-Type": "application/json"},
-            timeout=15,
-        )
-        resp = r.json()
-        if resp.get("ok"):
-            print(f"    Slack report sent to Sanne")
-        else:
-            print(f"    Slack report failed: {resp.get('error')}")
-    except Exception as e:
-        print(f"    Slack report error: {e}")
+
+    for recipient_id, name in [(SANNE_SLACK_ID, "Sanne"), (YURI_SLACK_ID, "Yuri")]:
+        try:
+            r = requests.post(
+                "https://slack.com/api/chat.postMessage",
+                json={"channel": recipient_id, "text": message, "mrkdwn": True},
+                headers={"Authorization": f"Bearer {slack_token}", "Content-Type": "application/json"},
+                timeout=15,
+            )
+            resp = r.json()
+            if resp.get("ok"):
+                print(f"    Slack report sent to {name}")
+            else:
+                print(f"    Slack report to {name} failed: {resp.get('error')}")
+        except Exception as e:
+            print(f"    Slack report to {name} error: {e}")
 
 
 def main(dry_run=False):
