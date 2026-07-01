@@ -29,6 +29,7 @@ YESTERDAY = (
     else (_today - timedelta(days=1))
 ).strftime("%Y-%m-%d")
 SANNE_USER_ID = 217591
+YURI_MONDAY_USER_ID = 17121053
 SANNE_SLACK_ID = "UGGPA6LS0"
 YURI_SLACK_ID = "U01EATB21GW"
 
@@ -230,13 +231,16 @@ def get_in_progress_languages(cv_map):
 
 
 def post_monday_comment(subitem_id, language_names):
-    """Create an update on the subitem and notify Sanne Heijmans."""
+    """Create an update on the subitem and notify Sanne and Yuri."""
     lang_list = ", ".join(language_names)
     body = (
         f'I published the following languages: {lang_list}. '
         f'<a href="https://wix.monday.com/users/{SANNE_USER_ID}" '
         f'data-mention-id="{SANNE_USER_ID}" data-mention-type="user" '
-        f'class="mention">@Sanne Heijmans</a>'
+        f'class="mention">@Sanne Heijmans</a> '
+        f'<a href="https://wix.monday.com/users/{YURI_MONDAY_USER_ID}" '
+        f'data-mention-id="{YURI_MONDAY_USER_ID}" data-mention-type="user" '
+        f'class="mention">@Yuri Gidor</a>'
     )
     q = """
     mutation($item_id: ID!, $body: String!) {
@@ -246,9 +250,9 @@ def post_monday_comment(subitem_id, language_names):
     result = monday_query(q, {"item_id": subitem_id, "body": body})
     update_id = result.get("create_update", {}).get("id")
     if update_id:
-        # Send explicit notification so Sanne receives the bell alert
-        _send_notification(str(SANNE_USER_ID), str(update_id),
-                           f"Languages published: {lang_list}", "Post")
+        notification_text = f"Languages published: {lang_list}"
+        _send_notification(str(SANNE_USER_ID), str(update_id), notification_text, "Post")
+        _send_notification(str(YURI_MONDAY_USER_ID), str(update_id), notification_text, "Post")
 
 
 def _send_notification(user_id, target_id, text, target_type):
