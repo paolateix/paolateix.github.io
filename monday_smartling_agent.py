@@ -197,7 +197,7 @@ def get_subitems_overdue():
         except ValueError:
             print(f"[debug] skip '{sub['name']}': bad ETA '{eta_text}'")
             continue
-        if eta_date > today:
+        if eta_date >= today:
             print(f"[debug] skip '{sub['name']}': ETA {eta_text} not overdue")
             continue
 
