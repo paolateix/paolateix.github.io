@@ -161,7 +161,7 @@ REVIEWED_TASKS_ITEM_ID = 12180635204  # "Reviewed tasks" parent item
 def get_subitems_overdue():
     """
     Fetch subitems directly from the 'Reviewed tasks' parent item (12180635204),
-    then filter locally for ETA < today and status != Done.
+    then filter locally for ETA <= today and status != Done.
     Much faster than scanning the whole subitems board.
     """
     today = date.today()
@@ -197,7 +197,7 @@ def get_subitems_overdue():
         except ValueError:
             print(f"[debug] skip '{sub['name']}': bad ETA '{eta_text}'")
             continue
-        if eta_date >= today:
+        if eta_date > today:
             print(f"[debug] skip '{sub['name']}': ETA {eta_text} not overdue")
             continue
 
