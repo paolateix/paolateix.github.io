@@ -1,8 +1,6 @@
 name: Monday + Smartling Agent
 
 on:
-  schedule:
-    - cron: '15 8 * * *'  # targets 11AM Israel time (UTC+3), offset for GitHub Actions delay
   workflow_dispatch:
     inputs:
       dry_run:
