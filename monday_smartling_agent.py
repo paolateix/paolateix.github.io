@@ -526,6 +526,34 @@ def get_project_locale_ids(project_id):
         return set()
 
 
+def get_inprogress_locale_ids_by_hashcodes(project_id, hashcodes):
+    """Return locale IDs that have strings in progress (not yet published) for the given hashcodes."""
+    if not hashcodes:
+        return []
+    locales = get_project_locale_ids(project_id)
+    result = []
+    sample_hashcodes = hashcodes[:50]  # sample to avoid huge requests
+    for locale_id in locales:
+        try:
+            r = requests.get(
+                f"https://api.smartling.com/strings-api/v2/projects/{project_id}/translations",
+                headers={"Authorization": f"Bearer {smartling_token()}"},
+                params={"targetLocaleId": locale_id, "hashcodes": sample_hashcodes, "limit": 50},
+                timeout=30,
+            )
+            if not r.ok:
+                continue
+            items = r.json()["response"]["data"].get("items", [])
+            for item in items:
+                workflow = item.get("workflowStepName", "") or ""
+                if workflow and "publish" not in workflow.lower():
+                    result.append(locale_id)
+                    break
+        except Exception:
+            continue
+    return result
+
+
 def get_inprogress_locale_ids_for_job(project_id, job_id):
     """Return locale IDs that have unpublished strings in the job."""
     progress = sl_get(f"/jobs-api/v3/projects/{project_id}/jobs/{job_id}/progress")
@@ -760,6 +788,8 @@ def main(dry_run=False):
                 print(f"[debug] could not fetch job progress: {e}")
         elif string_uids and file_uris:
             inprogress_locale_ids = get_publishable_locales_by_file(project_id, file_uris[0])
+        elif string_uids:
+            inprogress_locale_ids = get_inprogress_locale_ids_by_hashcodes(project_id, string_uids)
         else:
             inprogress_locale_ids = []
 
