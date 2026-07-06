@@ -526,34 +526,6 @@ def get_project_locale_ids(project_id):
         return set()
 
 
-def get_inprogress_locale_ids_by_hashcodes(project_id, hashcodes):
-    """Return locale IDs that have strings in progress (not yet published) for the given hashcodes."""
-    if not hashcodes:
-        return []
-    locales = get_project_locale_ids(project_id)
-    result = []
-    sample_hashcodes = hashcodes[:50]  # sample to avoid huge requests
-    for locale_id in locales:
-        try:
-            r = requests.get(
-                f"https://api.smartling.com/strings-api/v2/projects/{project_id}/translations",
-                headers={"Authorization": f"Bearer {smartling_token()}"},
-                params={"targetLocaleId": locale_id, "hashcodes": sample_hashcodes, "limit": 50},
-                timeout=30,
-            )
-            if not r.ok:
-                continue
-            items = r.json()["response"]["data"].get("items", [])
-            for item in items:
-                workflow = item.get("workflowStepName", "") or ""
-                if workflow and "publish" not in workflow.lower():
-                    result.append(locale_id)
-                    break
-        except Exception:
-            continue
-    return result
-
-
 def get_inprogress_locale_ids_for_job(project_id, job_id):
     """Return locale IDs that have unpublished strings in the job."""
     progress = sl_get(f"/jobs-api/v3/projects/{project_id}/jobs/{job_id}/progress")
@@ -581,45 +553,6 @@ def get_job_hashcodes(project_id, job_id):
     r.raise_for_status()
     items = r.json()["response"]["data"].get("items", [])
     return list(set(item["hashcode"] for item in items if item.get("hashcode")))
-
-
-def submit_strings_by_tag_to_published(project_id, locale_ids, tag):
-    """
-    Publish all strings with a given tag for the specified locales via Smartling GQL.
-    Used when the translations API returns no hashcodes (e.g. APPLICATION_RESOURCES projects).
-    Returns list of locale_ids that were successfully submitted.
-    """
-    if not locale_ids or not tag:
-        return []
-    tok = smartling_token()
-    url = (
-        f"https://dashboard.smartling.com/p/strings-view-service-graphql-api"
-        f"/v2/projects/{project_id}/graphql"
-    )
-    headers = {"Authorization": f"Bearer {tok}", "Content-Type": "application/json"}
-
-    def _gql_str_list(items):
-        return "[" + ", ".join(f'"{v}"' for v in items) + "]"
-
-    published = []
-    for locale_id in locale_ids:
-        try:
-            inline_filters = (
-                f'[{{localeIds: {_gql_str_list([locale_id])}}}, '
-                f'{{tags: {_gql_str_list([tag])}}}]'
-            )
-            gql = f"mutation {{ submitStringsByFilter(filters: {inline_filters}) {{ success operationId }} }}"
-            r = requests.post(url, json={"query": gql}, headers=headers, timeout=30)
-            r.raise_for_status()
-            data = r.json().get("data", {}).get("submitStringsByFilter", {})
-            if data.get("success"):
-                published.append(locale_id)
-            else:
-                errs = r.json().get("errors")
-                print(f"    {locale_id}: tag-submit failed — {errs}")
-        except Exception as e:
-            print(f"    {locale_id}: tag-submit error — {e}")
-    return published
 
 
 def submit_strings_to_published(project_id, locale_ids, hashcodes):
@@ -811,7 +744,7 @@ def main(dry_run=False):
 
         project_locale_ids = get_project_locale_ids(project_id)
 
-        if not string_uids and not job_id and not tags:
+        if not string_uids and not job_id:
             # No way to identify strings — just mark done
             if dry_run:
                 print(f"• {name}\n  → Mark as Done (no Smartling strings found)")
@@ -828,21 +761,13 @@ def main(dry_run=False):
                 print(f"[debug] could not fetch job progress: {e}")
         elif string_uids and file_uris:
             inprogress_locale_ids = get_publishable_locales_by_file(project_id, file_uris[0])
-        elif string_uids:
-            inprogress_locale_ids = get_inprogress_locale_ids_by_hashcodes(project_id, string_uids)
-        elif tags:
-            # APPLICATION_RESOURCES projects: translations API returns nothing, use all project locales
-            inprogress_locale_ids = list(get_project_locale_ids(project_id))
         else:
             inprogress_locale_ids = []
 
         inprogress_lang_names = sorted({locale_to_lang.get(l, l) for l in inprogress_locale_ids})
 
         if dry_run:
-            if tags and not string_uids and inprogress_locale_ids:
-                dry_run_actions.append(name)
-                print(f"• {name}\n  → Has in-progress strings tagged '{tags[0]}' — exact languages shown after real run")
-            elif inprogress_lang_names:
+            if inprogress_lang_names:
                 dry_run_actions.append(name)
                 print(f"• {name}\n  → Publish: {', '.join(inprogress_lang_names)}")
             else:
@@ -862,10 +787,6 @@ def main(dry_run=False):
                 published_locales = publish_locales_for_strings(
                     project_id, string_uids, inprogress_locale_ids,
                     file_uri=file_uris[0] if file_uris else None
-                )
-            elif tags and inprogress_locale_ids:
-                published_locales = submit_strings_by_tag_to_published(
-                    project_id, inprogress_locale_ids, tags[0]
                 )
 
             if published_locales:
