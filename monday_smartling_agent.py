@@ -651,11 +651,12 @@ def submit_strings_to_published(project_id, locale_ids, hashcodes):
             gql = f"mutation {{ submitStringsByFilter(filters: {inline_filters}) {{ success operationId }} }}"
             r = requests.post(url, json={"query": gql}, headers=headers, timeout=30)
             r.raise_for_status()
-            data = r.json().get("data", {}).get("submitStringsByFilter", {})
+            resp = r.json()
+            data = (resp.get("data") or {}).get("submitStringsByFilter") or {}
             if data.get("success"):
                 published.append(locale_id)
             else:
-                errs = r.json().get("errors")
+                errs = resp.get("errors")
                 print(f"    {locale_id}: submit failed — {errs}")
         except Exception as e:
             print(f"    {locale_id}: submit error — {e}")
