@@ -793,7 +793,11 @@ def main(dry_run=False):
                 published_lang_names = sorted({locale_to_lang.get(loc, loc) for loc in published_locales})
                 post_monday_comment(sub["subitem_id"], published_lang_names)
                 report_rows.append((name, sub["subitem_id"], published_lang_names))
-            set_task_status_done(sub["subitem_id"], sub["board_id"])
+                set_task_status_done(sub["subitem_id"], sub["board_id"])
+            elif inprogress_locale_ids:
+                print(f"    WARNING: could not publish any locales for '{name}' — NOT marking as Done")
+            else:
+                set_task_status_done(sub["subitem_id"], sub["board_id"])
 
     if dry_run:
         if not dry_run_actions:
