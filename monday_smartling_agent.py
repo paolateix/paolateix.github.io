@@ -840,7 +840,7 @@ def main(dry_run=False):
         if dry_run:
             if tags and not string_uids and inprogress_locale_ids:
                 dry_run_actions.append(name)
-                print(f"• {name}\n  → Publish by tag (will submit all in-progress strings tagged '{tags[0]}')")
+                print(f"• {name}\n  → Has in-progress strings tagged '{tags[0]}' — exact languages shown after real run")
             elif inprogress_lang_names:
                 dry_run_actions.append(name)
                 print(f"• {name}\n  → Publish: {', '.join(inprogress_lang_names)}")
