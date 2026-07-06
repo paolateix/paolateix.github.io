@@ -198,7 +198,7 @@
         const t = l.trim();
         if (!t) return false;
         if (t.startsWith('##[')) return false;
-        if (t.startsWith('[debug] skip ')) return false;
+        if (t.startsWith('[debug]')) return false;
         return true;
       });
 
