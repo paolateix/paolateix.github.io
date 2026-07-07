@@ -145,12 +145,17 @@ def monday_query(query, variables=None):
     payload = {"query": query}
     if variables:
         payload["variables"] = variables
-    r = requests.post("https://api.monday.com/v2", json=payload, headers=headers, timeout=30)
+    for attempt in range(4):
+        r = requests.post("https://api.monday.com/v2", json=payload, headers=headers, timeout=30)
+        if r.status_code == 429:
+            import time; time.sleep(10 * (attempt + 1))
+            continue
+        r.raise_for_status()
+        data = r.json()
+        if "errors" in data:
+            raise RuntimeError(f"Monday API error: {data['errors']}")
+        return data["data"]
     r.raise_for_status()
-    data = r.json()
-    if "errors" in data:
-        raise RuntimeError(f"Monday API error: {data['errors']}")
-    return data["data"]
 
 
 SUBITEMS_BOARD_ID = 9991673115  # "Subitems of Product Localization Tasks"
