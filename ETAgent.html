@@ -170,7 +170,7 @@
     }
 
     async function pollUntilComplete(token, runId) {
-      for (let i = 0; i < 60; i++) {
+      for (let i = 0; i < 120; i++) {
         await new Promise(r => setTimeout(r, 5000));
         const data = await ghGet(token, `/repos/${REPO}/actions/runs/${runId}`);
         if (data.status === 'completed') return data;
