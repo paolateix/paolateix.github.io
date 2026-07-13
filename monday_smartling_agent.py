@@ -14,7 +14,7 @@ import json
 import os
 import re
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from urllib.parse import parse_qs, unquote, urlparse
 
 import requests
@@ -169,7 +169,9 @@ def get_subitems_overdue():
     then filter locally for ETA <= today and status != Done.
     Much faster than scanning the whole subitems board.
     """
-    today = date.today()
+    from datetime import timezone
+    israel_now = datetime.now(timezone.utc) + timedelta(hours=3)
+    today = israel_now.date()
     tomorrow = today + timedelta(days=1)
     results = []
 
