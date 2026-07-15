@@ -798,8 +798,11 @@ def main(dry_run=False):
 
             if published_locales:
                 published_lang_names = sorted({locale_to_lang.get(loc, loc) for loc in published_locales})
-                post_monday_comment(sub["subitem_id"], published_lang_names)
-                report_rows.append((name, sub["subitem_id"], published_lang_names))
+                silent_langs = {"Vietnamese", "Hindi", "Indonesian"}
+                report_lang_names = [l for l in published_lang_names if l not in silent_langs]
+                if report_lang_names:
+                    post_monday_comment(sub["subitem_id"], report_lang_names)
+                    report_rows.append((name, sub["subitem_id"], report_lang_names))
             set_task_status_done(sub["subitem_id"], sub["board_id"])
 
     if dry_run:
