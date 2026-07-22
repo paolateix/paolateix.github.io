@@ -798,7 +798,7 @@ def main(dry_run=False):
 
             if published_locales:
                 published_lang_names = sorted({locale_to_lang.get(loc, loc) for loc in published_locales})
-                silent_langs = {"Vietnamese", "Hindi", "Indonesian"}
+                silent_langs = {"VI", "HI", "ID"}
                 report_lang_names = [l for l in published_lang_names if l not in silent_langs]
                 if report_lang_names:
                     post_monday_comment(sub["subitem_id"], report_lang_names)
